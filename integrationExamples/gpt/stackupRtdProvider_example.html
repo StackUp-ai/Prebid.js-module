@@ -1,0 +1,347 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>Stackup RTD Provider — Integration Test</title>
+
+    <!--
+      LIVE TEST MODE
+      ──────────────
+      Requests go to the real CloudFront staging endpoint.
+      pubId and articleId below match the test fixture in that environment.
+    -->
+
+    <script>
+      var pbjs = pbjs || {};
+      pbjs.que = pbjs.que || [];
+    </script>
+
+    <!-- Dev build — rebuild with: npx gulp build --modules=stackupRtdProvider,appnexusBidAdapter -->
+    <script src="../../build/dist/prebid.js" async></script>
+
+    <script>
+      // Give the RTD fetch plenty of time; mock responds in ~50 ms.
+      var FAILSAFE_TIMEOUT = 5000;
+      var AUCTION_DELAY = 1500;
+
+      var adUnits = [
+        {
+          code: "test-div",
+          mediaTypes: {
+            banner: {
+              sizes: [
+                [300, 250],
+                [728, 90],
+              ],
+            },
+          },
+          bids: [{ bidder: "appnexus", params: { placementId: 13144370 } }],
+        },
+        {
+          code: "test-leaderboard",
+          mediaTypes: {
+            banner: {
+              sizes: [
+                [728, 90],
+                [970, 90],
+              ],
+            },
+          },
+          bids: [{ bidder: "appnexus", params: { placementId: 13144370 } }],
+        },
+        {
+          code: "test-halfpage",
+          mediaTypes: {
+            banner: {
+              sizes: [
+                [300, 600],
+                [160, 600],
+              ],
+            },
+          },
+          bids: [{ bidder: "appnexus", params: { placementId: 13144370 } }],
+        },
+        {
+          code: "test-rectangle",
+          mediaTypes: {
+            banner: {
+              sizes: [
+                [336, 280],
+                [300, 250],
+              ],
+            },
+          },
+          bids: [{ bidder: "appnexus", params: { placementId: 13144370 } }],
+        },
+      ];
+
+      // Capture per-bidder ortb2 as requests are made.
+      // pbjs.getBidRequests() returns [] after bidsBackHandler fires because
+      // Prebid filters out finished auctions (doneCbCallCount is set).
+      var capturedBidRequests = [];
+      pbjs.que.push(function () {
+        pbjs.onEvent("bidRequested", function (data) {
+          capturedBidRequests.push({
+            bidder: data.bidderCode,
+            ortb2: data.bids && data.bids[0] && data.bids[0].ortb2,
+          });
+        });
+
+        pbjs.setConfig({
+          debug: true,
+          realTimeData: {
+            auctionDelay: AUCTION_DELAY,
+            dataProviders: [
+              {
+                name: "stackupRtd",
+                waitForIt: true,
+                params: {
+                  apiUrl: "http://127.0.0.1:3080/v1/enrich-ortb-rtd",
+                  pubId: "a3f2b1c4-7e8d-4a5b-9c1d-2e3f4a5b6c7d",
+                  //https://d2rt5e1ei2zf7h.cloudfront.net/v1/enrich-ortb-rtd
+                  // "explicit" keeps articleId predictable for testing.
+                  // Switch to "auto" in production to derive IDs from the URL/title.
+                  articleIdMode: "auto",
+                  //articleId: "path_3f8a1b2c",
+                  timeout: 1200,
+                  debug: true,
+                },
+              },
+            ],
+          },
+        });
+
+        pbjs.addAdUnits(adUnits);
+        pbjs.requestBids({ bidsBackHandler: sendAdserverRequest });
+      });
+
+      var CACHE_KEY = "stackup:enrich:v1:path_3f8a1b2c";
+
+      function sendAdserverRequest() {
+        if (pbjs.adserverRequestSent) return;
+        pbjs.adserverRequestSent = true;
+
+        // ── 1. Fetch URL ──────────────────────────────────────────────────
+        document.getElementById("fetch-url").textContent =
+          window._stackupFetchUrl ||
+          "(no request captured — check the console for errors)";
+
+        // ── 2. sessionStorage cache written by the module ─────────────────
+        var rawCache = sessionStorage.getItem(CACHE_KEY);
+        if (rawCache) {
+          try {
+            var parsed = JSON.parse(rawCache);
+            document.getElementById("cache-output").textContent =
+              "source: " +
+              parsed.d.source +
+              "\nfetchedAt: " +
+              new Date(parsed.d.fetchedAt).toISOString() +
+              "\nschema version: " +
+              parsed.v +
+              "\nttl expires: " +
+              new Date(parsed.t + 3600000).toISOString() +
+              "\n\nfull entry:\n" +
+              JSON.stringify(parsed, null, 2);
+            document.getElementById("cache-output").style.borderColor =
+              "#4caf50";
+          } catch (e) {
+            document.getElementById("cache-output").textContent =
+              "parse error: " + e;
+          }
+        } else {
+          document.getElementById("cache-output").textContent =
+            "NOT FOUND — storage write was silently blocked.\n" +
+            "Run in console: pbjs.getConfig('allowActivities')";
+          document.getElementById("cache-output").style.borderColor = "#f44336";
+        }
+
+        // ── 3. ortb2 fragments written by the RTD module ──────────────────
+        if (capturedBidRequests.length > 0) {
+          document.getElementById("bidreq-output").textContent = JSON.stringify(
+            capturedBidRequests,
+            null,
+            2
+          );
+        } else {
+          document.getElementById("bidreq-output").textContent =
+            "(no bidRequested events fired — check console for errors)";
+        }
+
+        // ── 4. Page-level ortb2 config (supplementary) ───────────────────
+        var ortb2 = pbjs.getConfig("ortb2") || {};
+        document.getElementById("ortb2-output").textContent = JSON.stringify(
+          ortb2,
+          null,
+          2
+        );
+
+        document.getElementById("status").textContent = "Auction complete.";
+        document.getElementById("status").style.color = "#1a7a1a";
+      }
+
+      setTimeout(function () {
+        pbjs.que.push(sendAdserverRequest);
+      }, FAILSAFE_TIMEOUT);
+    </script>
+  </head>
+
+  <body>
+    <h2>Stackup RTD Provider — Integration Test</h2>
+
+    <div
+      style="
+        background: #fff3cd;
+        border: 1px solid #ffc107;
+        border-radius: 4px;
+        padding: 10px 14px;
+        margin-bottom: 16px;
+      "
+    >
+      <strong>Live test API mode.</strong> Requests go to the CloudFront staging
+      endpoint (<code>d2rt5e1ei2zf7h.cloudfront.net</code>) which returns mock
+      schema. Open the browser console — Prebid is running with
+      <code>debug: true</code> so you will see <code>[stackupRtd]</code> log
+      lines for every step.
+    </div>
+
+    <p id="status" style="color: #555; font-style: italic">
+      Waiting for auction…
+    </p>
+
+    <h3>1. Enrichment fetch URL</h3>
+    <p style="color: #555; font-size: 0.9em">
+      Confirm <code>pubId</code> and <code>articleId</code> are encoded
+      correctly.
+    </p>
+    <pre
+      id="fetch-url"
+      style="
+        background: #f5f5f5;
+        padding: 10px;
+        border: 1px solid #ddd;
+        word-break: break-all;
+      "
+    >
+(waiting…)</pre
+    >
+
+    <h3>
+      2. sessionStorage cache (written by <code>setCachedEnrichment</code>)
+    </h3>
+    <p style="color: #555; font-size: 0.9em">
+      Key: <code>stackup:enrich:v1:path_3f8a1b2c</code> — green border = write
+      succeeded. On reload this is read instead of calling the API (<code
+        >source: "cache"</code
+      >).
+    </p>
+    <pre
+      id="cache-output"
+      style="
+        background: #f5f5f5;
+        padding: 10px;
+        border: 2px solid #ddd;
+        max-height: 400px;
+        overflow: auto;
+      "
+    >
+(waiting…)</pre
+    >
+
+    <h3>3. Per-bidder ortb2 in bid requests</h3>
+    <p style="color: #555; font-size: 0.9em">
+      This is what each bidder adapter actually sees. Look for
+      <code>site.content.data</code> (segtax 3) and
+      <code>user.data</code> (segtax 4) inside each bidder's <code>ortb2</code>.
+    </p>
+    <pre
+      id="bidreq-output"
+      style="
+        background: #f5f5f5;
+        padding: 10px;
+        border: 1px solid #ddd;
+        max-height: 500px;
+        overflow: auto;
+      "
+    >
+(waiting…)</pre
+    >
+
+    <h3>4. Page-level ortb2 config</h3>
+    <p style="color: #555; font-size: 0.9em">
+      What <code>pbjs.getConfig('ortb2')</code> returns after the auction.
+    </p>
+    <pre
+      id="ortb2-output"
+      style="
+        background: #f5f5f5;
+        padding: 10px;
+        border: 1px solid #ddd;
+        max-height: 400px;
+        overflow: auto;
+      "
+    >
+(waiting…)</pre
+    >
+
+    <div
+      id="test-div"
+      style="
+        width: 300px;
+        height: 250px;
+        background: #eee;
+        border: 1px solid #ccc;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        margin-top: 20px;
+      "
+    >
+      <span style="color: #999">test-div 300×250</span>
+    </div>
+    <div
+      id="test-leaderboard"
+      style="
+        width: 728px;
+        height: 90px;
+        background: #eee;
+        border: 1px solid #ccc;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        margin-top: 12px;
+      "
+    >
+      <span style="color: #999">test-leaderboard 728×90</span>
+    </div>
+    <div
+      id="test-halfpage"
+      style="
+        width: 300px;
+        height: 600px;
+        background: #eee;
+        border: 1px solid #ccc;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        margin-top: 12px;
+      "
+    >
+      <span style="color: #999">test-halfpage 300×600</span>
+    </div>
+    <div
+      id="test-rectangle"
+      style="
+        width: 336px;
+        height: 280px;
+        background: #eee;
+        border: 1px solid #ccc;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        margin-top: 12px;
+      "
+    >
+      <span style="color: #999">test-rectangle 336×280</span>
+    </div>
+  </body>
+</html>
