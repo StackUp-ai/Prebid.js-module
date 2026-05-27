@@ -97,12 +97,11 @@
                 waitForIt: true,
                 params: {
                   apiUrl: "http://127.0.0.1:3080/v1/enrich-ortb-rtd",
-                  pubId: "a3f2b1c4-7e8d-4a5b-9c1d-2e3f4a5b6c7d",
-                  //https://d2rt5e1ei2zf7h.cloudfront.net/v1/enrich-ortb-rtd
+                  pubId: "fbf2c049-5c69-479a-8c22-7049f3cda01a",
                   // "explicit" keeps articleId predictable for testing.
                   // Switch to "auto" in production to derive IDs from the URL/title.
-                  articleIdMode: "auto",
-                  //articleId: "path_3f8a1b2c",
+                  articleIdMode: "explicit",
+                  articleId: "rtd-test/article2",
                   timeout: 1200,
                   debug: true,
                 },
@@ -115,7 +114,7 @@
         pbjs.requestBids({ bidsBackHandler: sendAdserverRequest });
       });
 
-      var CACHE_KEY = "stackup:enrich:v1:path_3f8a1b2c";
+      var CACHE_KEY = "stackup:enrich:v1:rtd-test/article2";
 
       function sendAdserverRequest() {
         if (pbjs.adserverRequestSent) return;

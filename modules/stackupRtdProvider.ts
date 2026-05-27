@@ -8,13 +8,7 @@ import {
   discloseStorageUse,
 } from "../src/storageManager.js";
 import { MODULE_TYPE_RTD } from "../src/activities/modules.js";
-import {
-  logInfo,
-  logError,
-  logWarn,
-  deepAccess,
-  cyrb53Hash,
-} from "../src/utils.js";
+import { logInfo, logError, logWarn, deepAccess } from "../src/utils.js";
 import type { RTDProviderConfig, RtdProviderSpec } from "./rtdModule/spec.ts";
 
 // TCF purposes required by stackupRtd:
@@ -68,7 +62,7 @@ export interface StackupRtdParams {
   pubId: string; // Publisher ID issued by Stackup
   timeout?: number; // default: 300 ms
   articleId?: string;
-  articleIdMode?: "explicit" | "path" | "title" | "auto";
+  articleIdMode?: "explicit" | "path";
   cache?: {
     enabled: boolean;
     ttlSeconds: number;
@@ -406,87 +400,59 @@ function hasRequiredConsent(userConsent: AllConsentData): boolean {
 
 function resolveArticleId(params: StackupRtdParams): {
   id: string | null;
-  source: "explicit" | "path" | "title" | null;
+  source: "explicit" | "path" | null;
 } {
-  const mode = params.articleIdMode ?? "auto";
+  const mode = params.articleIdMode ?? "path";
 
-  // Strategy 1: explicit
-  if (mode === "explicit" || mode === "auto") {
+  if (mode === "explicit") {
     if (params.articleId && typeof params.articleId === "string") {
       const id = params.articleId.trim();
-      if (id.length > 0 && id.length <= 128) {
+      if (id.length > 0 && id.length <= 512) {
         return { id, source: "explicit" };
       }
     }
-    if (mode === "explicit") return { id: null, source: null };
+    return { id: null, source: null };
   }
 
-  // Strategy 2: path
-  if (mode === "path" || mode === "auto") {
-    const id = resolveFromPath();
-    if (id) return { id, source: "path" };
-    if (mode === "path") return { id: null, source: null };
-  }
-
-  // Strategy 3: title
-  if (mode === "title" || mode === "auto") {
-    const id = resolveFromTitle();
-    if (id) return { id, source: "title" };
-  }
-
-  return { id: null, source: null };
+  // mode === "path" (default)
+  const id = resolveFromPath();
+  return id ? { id, source: "path" } : { id: null, source: null };
 }
 
 function resolveFromPath(): string | null {
   try {
     let path = window.location.pathname;
 
-    // Normalize: lowercase, strip trailing slash
-    path = path.toLowerCase().replace(/\/+$/, "");
+    // Normalize: lowercase, collapse double slashes
+    path = path.toLowerCase().replace(/\/{2,}/g, "/");
 
-    // Strip common locale prefixes
+    // Strip trailing slash — but keep bare "/" (homepage) intact
+    if (path.length > 1) {
+      path = path.replace(/\/$/, "");
+    }
+
+    // Strip common locale prefixes (/en/, /us/, /de/, etc.)
     path = path.replace(
       /^\/(en|us|uk|de|fr|es|it|jp|kr|cn)(-[a-z]{2})?\//,
       "/"
     );
 
-    // Strip tracking params that leak into path on some sites
+    // Strip AMP path variants
     path = path.replace(/\/_amp\//, "/").replace(/\/amp\/?$/, "");
 
-    // Must look like an article path, not a section front
-    // Heuristic: at least 2 path segments and total length > 20
+    // Homepage — return "/" so the API can resolve homepage-level enrichment
+    if (path === "" || path === "/") return "/";
+
+    // For non-homepage paths require at least 2 segments to avoid sending
+    // section fronts like "/news" that are never stored as article rows.
+    // The API fallback chain (homepage → domain) handles misses gracefully.
     const segments = path.split("/").filter(Boolean);
     if (segments.length < 2) return null;
-    if (path.length < 20) return null;
 
-    // WHY HASH THE PATH INSTEAD OF USING IT DIRECTLY:
-    // Raw paths can be long (100+ chars), contain special characters that need
-    // URL-encoding, and may leak information we do not want in cache keys or
-    // analytics payloads. cyrb53 gives a fixed-length, URL-safe, stable
-    // identifier. 16 hex characters (64 bits) gives ~1.8e19 possible values —
-    // more than enough to avoid collisions within any publisher's article corpus.
-    // We prefix with 'path_' so analytics can distinguish explicit IDs from
-    // derived ones at a glance.
-    return "path_" + cyrb53Hash(path).toString(16).slice(0, 16);
-  } catch {
-    return null;
-  }
-}
-
-function resolveFromTitle(): string | null {
-  try {
-    const title = (document.title || "").trim();
-    if (title.length < 10) return null;
-
-    // Strip common publisher suffixes
-    const stripped = title
-      .replace(/\s*[-|·]\s*[^\-|·]+$/, "") // strip '| PublisherName' or '- PublisherName'
-      .trim();
-
-    if (stripped.length < 10) return null;
-    return (
-      "title_" + cyrb53Hash(stripped.toLowerCase()).toString(16).slice(0, 16)
-    );
+    // Return the raw path — the API matches it against article_analysis.normalized_path.
+    // The sessionStorage cache key (CACHE_KEY_PREFIX + path) uses this value directly;
+    // no hashing needed there since sessionStorage has no key-length constraints.
+    return path;
   } catch {
     return null;
   }
