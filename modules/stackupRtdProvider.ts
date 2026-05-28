@@ -9,6 +9,7 @@ import {
 } from "../src/storageManager.js";
 import { MODULE_TYPE_RTD } from "../src/activities/modules.js";
 import { logInfo, logError, logWarn, deepAccess } from "../src/utils.js";
+import { getRefererInfo } from "../src/refererDetection.js";
 import type { RTDProviderConfig, RtdProviderSpec } from "./rtdModule/spec.ts";
 
 // TCF purposes required by stackupRtd:
@@ -233,8 +234,8 @@ function buildEnrichmentUrl(
   params: StackupRtdParams
 ): string {
   const base = params.apiUrl ?? DEFAULT_API_URL;
-  const domain = window.location.hostname;
-  // if we in Debug mode use test domain to avoid hitting the real API with potentially invalid article IDs during development and testing
+  // Use Prebid's referer detection so domain is correct inside iframes.
+  const domain = getRefererInfo().domain;
 
   if (params.debug) {
     const debugDomain = params.debugDomain ?? domain;
@@ -421,7 +422,13 @@ function resolveArticleId(params: StackupRtdParams): {
 
 function resolveFromPath(): string | null {
   try {
-    let path = window.location.pathname;
+    // Use Prebid's referer detection — works across iframes and AMP frames
+    // where window.location may not reflect the actual publisher page.
+    const ri = getRefererInfo();
+    const pageUrl = ri.page;
+    if (!pageUrl) return null;
+
+    let path = new URL(pageUrl).pathname;
 
     // Normalize: lowercase, collapse double slashes
     path = path.toLowerCase().replace(/\/{2,}/g, "/");
