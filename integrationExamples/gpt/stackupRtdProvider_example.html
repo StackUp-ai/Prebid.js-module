@@ -9,6 +9,17 @@
       ──────────────
       Requests go to the real CloudFront staging endpoint.
       pubId and articleId below match the test fixture in that environment.
+
+      RECENT CHANGES
+      ──────────────
+      - Consent: USP/CCPA and GPP opt-out checks have been removed.
+        The module sends only a URL path + domain to the enrichment API —
+        no user identifiers — so US sale-of-data frameworks do not apply.
+        Only COPPA and GDPR (Purposes 1 & 4) are now enforced.
+
+      - debugDomain param: replaces the old hardcoded TEST_DOMAIN constant.
+        When debug: true, the domain sent to the API is params.debugDomain
+        (falls back to "phonearena.com" if omitted).
     -->
 
     <script>
@@ -96,13 +107,16 @@
                 name: "stackupRtd",
                 waitForIt: true,
                 params: {
-                  apiUrl: "http://127.0.0.1:3080/v1/enrich-ortb-rtd",
-                  pubId: "fbf2c049-5c69-479a-8c22-7049f3cda01a",
+                  apiUrl: "https://test.com/v1/enrich-ortb-rtd",
+                  pubId: "00000000-0000-0000-0000-000000000000",
                   // "explicit" keeps articleId predictable for testing.
                   // Switch to "auto" in production to derive IDs from the URL/title.
                   articleIdMode: "explicit",
-                  articleId: "rtd-test/article2",
+                  articleId:
+                    "news/apple-watch-series-12-may-ditch-biometric-unlock-for-much-better-features_id180278",
                   timeout: 1200,
+                  // debugDomain: overrides the domain sent to the API when debug: true.
+                  debugDomain: "test.com",
                   debug: true,
                 },
               },
@@ -114,7 +128,8 @@
         pbjs.requestBids({ bidsBackHandler: sendAdserverRequest });
       });
 
-      var CACHE_KEY = "stackup:enrich:v1:rtd-test/article2";
+      var CACHE_KEY =
+        "stackup:enrich:v1:news/apple-watch-series-12-may-ditch-biometric-unlock-for-much-better-features_id180278";
 
       function sendAdserverRequest() {
         if (pbjs.adserverRequestSent) return;

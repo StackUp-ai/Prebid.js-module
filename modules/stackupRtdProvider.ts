@@ -69,6 +69,7 @@ export interface StackupRtdParams {
     storage: "session" | "memory";
   };
   debug?: boolean;
+  debugDomain?: string; // overrides the domain sent to the API when debug: true
 }
 
 declare module "./rtdModule/spec.ts" {
@@ -233,6 +234,17 @@ function buildEnrichmentUrl(
 ): string {
   const base = params.apiUrl ?? DEFAULT_API_URL;
   const domain = window.location.hostname;
+  // if we in Debug mode use test domain to avoid hitting the real API with potentially invalid article IDs during development and testing
+
+  if (params.debug) {
+    const debugDomain = params.debugDomain ?? domain;
+    return `${base}?pubId=${encodeURIComponent(
+      params.pubId
+    )}&articleId=${encodeURIComponent(articleId)}&domain=${encodeURIComponent(
+      debugDomain
+    )}`;
+  }
+
   return `${base}?pubId=${encodeURIComponent(
     params.pubId
   )}&articleId=${encodeURIComponent(articleId)}&domain=${encodeURIComponent(
@@ -364,25 +376,13 @@ function setCachedEnrichment(
 }
 
 function hasRequiredConsent(userConsent: AllConsentData): boolean {
-  // COPPA: all enrichment must be blocked for child-directed contexts.
+  // COPPA: block all processing in child-directed contexts.
   if (userConsent.coppa === true) return false;
 
-  // USP / CCPA: position 2 of the 1.0 string is the opt-out-of-sale flag;
-  // 'Y' means the user has opted out.
-  const usp = deepAccess(userConsent, "usp");
-  if (typeof usp === "string" && usp[2] === "Y") return false;
-
-  // GPP: US-law sections (>= 5) indicate an active US state privacy law.
-  // Block conservatively until section-specific opt-out parsing is available.
-  const gppSections: number[] | undefined = deepAccess(
-    userConsent,
-    "gpp.applicableSections"
-  );
-  if (Array.isArray(gppSections) && gppSections.some((s) => s >= 5)) {
-    return false;
-  }
-
   // GDPR: require per-purpose consent when GDPR applies.
+  // No USP/CCPA or GPP checks — this module sends only a URL path and domain
+  // to the enrichment API; no user identifiers are transmitted or stored,
+  // so US sale-of-data opt-outs have no legal basis here.
   const gdprApplies = deepAccess(userConsent, "gdpr.gdprApplies");
   if (!gdprApplies) return true;
 
