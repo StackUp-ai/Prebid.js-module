@@ -44,8 +44,7 @@ type RtdState =
   | "fetching"
   | "ready"
   | "timedOut"
-  | "error"
-  | "merging";
+  | "error";
 
 interface RtdInternalState {
   state: RtdState;
