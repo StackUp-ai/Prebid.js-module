@@ -8,7 +8,17 @@ import {
   discloseStorageUse,
 } from "../src/storageManager.js";
 import { MODULE_TYPE_RTD } from "../src/activities/modules.js";
-import { logInfo, logError, logWarn, deepAccess } from "../src/utils.js";
+import {
+  logInfo,
+  logError,
+  logWarn,
+  deepAccess,
+  isStr,
+  isArray,
+  isNumber,
+  isPlainObject,
+  cyrb53Hash,
+} from "../src/utils.js";
 import { getRefererInfo } from "../src/refererDetection.js";
 import type { RTDProviderConfig, RtdProviderSpec } from "./rtdModule/spec.ts";
 
@@ -35,8 +45,7 @@ type RtdState =
   | "fetching"
   | "ready"
   | "timedOut"
-  | "error"
-  | "merging";
+  | "error";
 
 interface RtdInternalState {
   state: RtdState;
@@ -323,34 +332,38 @@ function fetchEnrichment(
 }
 
 function isValidEnrichment(data: any): data is RawEnrichmentResponse {
-  if (!data || typeof data !== "object") return false;
+  if (!isPlainObject(data)) return false;
   if (!data.site?.content) return false;
-  if (!Array.isArray(data.site.content.data)) return false;
+  if (!isArray(data.site.content.data)) return false;
 
   // Validate every segment in site.content.data
   for (const block of data.site.content.data) {
-    if (typeof block.name !== "string") return false;
+    if (!isStr(block.name)) return false;
     if (block.ext?.segtax !== 3) return false; // must be IAB Content Taxonomy 3.1
-    if (!Array.isArray(block.segment)) return false;
+    if (!isArray(block.segment)) return false;
     for (const seg of block.segment) {
-      if (typeof seg.id !== "string") return false;
-      if (typeof seg.name !== "string") return false;
+      if (!isStr(seg.id)) return false;
+      if (!isStr(seg.name)) return false;
       if (seg.ext?.confidence !== undefined) {
-        if (typeof seg.ext.confidence !== "number") return false;
+        if (!isNumber(seg.ext.confidence)) return false;
         if (seg.ext.confidence < 0 || seg.ext.confidence > 1) return false;
       }
     }
   }
 
   // user.data is optional — some articles have site-level enrichment only
-  if (data.user?.data && !Array.isArray(data.user.data)) return false;
+  if (data.user?.data && !isArray(data.user.data)) return false;
 
   return true;
 }
 
+function cacheKey(articleId: string): string {
+  return CACHE_KEY_PREFIX + "path_" + cyrb53Hash(articleId);
+}
+
 function getCachedEnrichment(articleId: string): EnrichmentSnapshot | null {
   try {
-    const raw = storage.getDataFromSessionStorage(CACHE_KEY_PREFIX + articleId);
+    const raw = storage.getDataFromSessionStorage(cacheKey(articleId));
     if (!raw) return null;
     const parsed = JSON.parse(raw);
     if (parsed.v !== CACHE_SCHEMA_VERSION) return null;
@@ -368,7 +381,7 @@ function setCachedEnrichment(
 ): void {
   try {
     storage.setDataInSessionStorage(
-      CACHE_KEY_PREFIX + articleId,
+      cacheKey(articleId),
       JSON.stringify({ v: CACHE_SCHEMA_VERSION, t: Date.now(), d: data })
     );
   } catch {
@@ -406,7 +419,7 @@ function resolveArticleId(params: StackupRtdParams): {
   const mode = params.articleIdMode ?? "path";
 
   if (mode === "explicit") {
-    if (params.articleId && typeof params.articleId === "string") {
+    if (isStr(params.articleId)) {
       const id = params.articleId.trim();
       if (id.length > 0 && id.length <= 512) {
         return { id, source: "explicit" };
@@ -457,8 +470,8 @@ function resolveFromPath(): string | null {
     if (segments.length < 2) return null;
 
     // Return the raw path — the API matches it against article_analysis.normalized_path.
-    // The sessionStorage cache key (CACHE_KEY_PREFIX + path) uses this value directly;
-    // no hashing needed there since sessionStorage has no key-length constraints.
+    // The sessionStorage cache key is derived by hashing this value via cacheKey();
+    // same page URL → same normalized path → same hash → cache hit on revisit.
     return path;
   } catch {
     return null;
