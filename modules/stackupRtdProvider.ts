@@ -33,6 +33,11 @@ const DEFAULT_TIMEOUT = 300;
 const DEFAULT_API_URL = "https://api.stackup.ai/v1/enrich";
 const CACHE_KEY_PREFIX = "stackup:enrich:v1:";
 const CACHE_SCHEMA_VERSION = 1;
+// Maximum number of auction snapshots to keep in memory at once.
+// On long-lived SPA sessions many auctions can fire; without a cap the map
+// grows without bound. FIFO eviction keeps the last N entries — enough for
+// any analytics adapter to read a snapshot before it is evicted.
+const MAX_SNAPSHOTS = 10;
 
 export const storage = getStorageManager({
   moduleType: MODULE_TYPE_RTD,
@@ -511,10 +516,7 @@ function getBidRequestData(
         mergeIntoOrtb2(reqBidsConfigObj, state.enrichment);
         // Stash snapshot keyed by auctionId so analytics adapter can retrieve it
         if (reqBidsConfigObj.auctionId) {
-          state.snapshotsByAuctionId.set(
-            reqBidsConfigObj.auctionId,
-            state.enrichment
-          );
+          storeSnapshot(reqBidsConfigObj.auctionId, state.enrichment);
         }
       } catch (e) {
         logError("[stackupRtd] merge failed, auction proceeds clean", e);
@@ -531,6 +533,17 @@ function getBidRequestData(
     // error, timedOut, idle — give up cleanly
     clearTimeout(timeoutId);
     release();
+  }
+}
+
+// Inserts a snapshot keyed by auctionId, evicting the oldest entry when the
+// map exceeds MAX_SNAPSHOTS. Map insertion order is guaranteed by the spec so
+// `.keys().next().value` always returns the oldest key.
+function storeSnapshot(auctionId: string, snapshot: EnrichmentSnapshot): void {
+  state.snapshotsByAuctionId.set(auctionId, snapshot);
+  if (state.snapshotsByAuctionId.size > MAX_SNAPSHOTS) {
+    const oldest = state.snapshotsByAuctionId.keys().next().value;
+    state.snapshotsByAuctionId.delete(oldest);
   }
 }
 
@@ -613,6 +626,11 @@ function registerSubmodule() {
 }
 
 registerSubmodule();
+
+// Exported only for unit tests — returns the current size of the snapshot map.
+export function _snapshotMapSizeForTesting(): number {
+  return state.snapshotsByAuctionId.size;
+}
 
 // Exported only for unit tests — resets the module-level singleton between test cases.
 export function _resetStateForTesting(): void {
