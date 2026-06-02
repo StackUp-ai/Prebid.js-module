@@ -2,6 +2,7 @@ import {
   subModuleObj,
   storage,
   _resetStateForTesting,
+  _snapshotMapSizeForTesting,
 } from "modules/stackupRtdProvider.js";
 import { server } from "test/mocks/xhr.js";
 
@@ -437,6 +438,20 @@ describe("StackUp RTD Provider", function () {
       subModuleObj.getBidRequestData(req, sinon.spy(), VALID_CONFIG);
       // Verify via a second call: content already present means snapshot was merged
       expect(req.ortb2Fragments.global.site.content.data).to.have.length(1);
+    });
+
+    it("should evict the oldest entry once the map exceeds 10 snapshots", function () {
+      // Insert 11 snapshots — state is already "ready" from beforeEach so
+      // each getBidRequestData call is synchronous.
+      for (let i = 0; i < 11; i++) {
+        subModuleObj.getBidRequestData(
+          { auctionId: `auction-evict-${i}`, ortb2Fragments: { global: {} } },
+          sinon.spy(),
+          VALID_CONFIG
+        );
+      }
+      // Map must never exceed the cap of 10.
+      expect(_snapshotMapSizeForTesting()).to.equal(10);
     });
   });
 
