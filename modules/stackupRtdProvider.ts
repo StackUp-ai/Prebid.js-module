@@ -17,6 +17,7 @@ import {
   isArray,
   isNumber,
   isPlainObject,
+  cyrb53Hash,
 } from "../src/utils.js";
 import { getRefererInfo } from "../src/refererDetection.js";
 import type { RTDProviderConfig, RtdProviderSpec } from "./rtdModule/spec.ts";
@@ -356,9 +357,13 @@ function isValidEnrichment(data: any): data is RawEnrichmentResponse {
   return true;
 }
 
+function cacheKey(articleId: string): string {
+  return CACHE_KEY_PREFIX + "path_" + cyrb53Hash(articleId);
+}
+
 function getCachedEnrichment(articleId: string): EnrichmentSnapshot | null {
   try {
-    const raw = storage.getDataFromSessionStorage(CACHE_KEY_PREFIX + articleId);
+    const raw = storage.getDataFromSessionStorage(cacheKey(articleId));
     if (!raw) return null;
     const parsed = JSON.parse(raw);
     if (parsed.v !== CACHE_SCHEMA_VERSION) return null;
@@ -376,7 +381,7 @@ function setCachedEnrichment(
 ): void {
   try {
     storage.setDataInSessionStorage(
-      CACHE_KEY_PREFIX + articleId,
+      cacheKey(articleId),
       JSON.stringify({ v: CACHE_SCHEMA_VERSION, t: Date.now(), d: data })
     );
   } catch {
@@ -465,8 +470,8 @@ function resolveFromPath(): string | null {
     if (segments.length < 2) return null;
 
     // Return the raw path — the API matches it against article_analysis.normalized_path.
-    // The sessionStorage cache key (CACHE_KEY_PREFIX + path) uses this value directly;
-    // no hashing needed there since sessionStorage has no key-length constraints.
+    // The sessionStorage cache key is derived by hashing this value via cacheKey();
+    // same page URL → same normalized path → same hash → cache hit on revisit.
     return path;
   } catch {
     return null;
