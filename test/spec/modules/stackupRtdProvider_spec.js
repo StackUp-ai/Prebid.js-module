@@ -142,12 +142,16 @@ describe("StackUp RTD Provider", function () {
     });
 
     it("should return true and not fetch when articleId cannot be resolved", function () {
-      // no explicit articleId; test env has short/empty path and title → no id resolved
+      // articleIdMode:explicit with no articleId → resolveArticleId returns null → no fetch
       expect(
         subModuleObj.init(
           {
             name: "stackupRtd",
-            params: { pubId: "test-pub", apiUrl: MOCK_API_URL },
+            params: {
+              pubId: "test-pub",
+              apiUrl: MOCK_API_URL,
+              articleIdMode: "explicit",
+            },
           },
           {}
         )
@@ -295,9 +299,12 @@ describe("StackUp RTD Provider", function () {
   // ── 4c. init – USP / CCPA ─────────────────────────────────────────────────
 
   describe("init – USP/CCPA", function () {
-    it("should not fetch when USP signals opt-out-of-sale (position 2 = Y)", function () {
+    // USP opt-out-of-sale does NOT block this module: the enrichment API
+    // receives only a URL path + domain — no user identifiers are transmitted
+    // or stored, so US sale-of-data opt-outs have no legal basis here.
+    it("should still fetch when USP signals opt-out-of-sale (position 2 = Y)", function () {
       subModuleObj.init(VALID_CONFIG, { usp: "1YYN" });
-      expect(server.requests.length).to.equal(0);
+      expect(server.requests.length).to.equal(1);
     });
 
     it("should fetch when USP does not signal opt-out-of-sale", function () {
@@ -314,18 +321,21 @@ describe("StackUp RTD Provider", function () {
   // ── 4d. init – GPP ────────────────────────────────────────────────────────
 
   describe("init – GPP", function () {
-    it("should not fetch when GPP has active US-law sections (>= 5)", function () {
+    // GPP US-law sections do NOT block this module: only contextual page data
+    // (URL path + domain) is sent to the API — no personal identifiers — so
+    // US state privacy laws governing sale/sharing of personal data do not apply.
+    it("should still fetch when GPP has active US-law sections (>= 5)", function () {
       subModuleObj.init(VALID_CONFIG, {
         gpp: { applicableSections: [6], gppString: "DBABMA~" },
       });
-      expect(server.requests.length).to.equal(0);
+      expect(server.requests.length).to.equal(1);
     });
 
-    it("should not fetch when GPP has multiple US-law sections", function () {
+    it("should still fetch when GPP has multiple US-law sections", function () {
       subModuleObj.init(VALID_CONFIG, {
         gpp: { applicableSections: [5, 7, 8], gppString: "DBABMA~" },
       });
-      expect(server.requests.length).to.equal(0);
+      expect(server.requests.length).to.equal(1);
     });
 
     it("should fetch when GPP has only the framework-applies sentinel (-1)", function () {
@@ -768,7 +778,8 @@ describe("StackUp RTD Provider", function () {
 
       expect(storageSetStub.calledOnce).to.be.true;
       const [key, value] = storageSetStub.firstCall.args;
-      expect(key).to.include("test-article-001");
+      // Cache key is a hash: "stackup:enrich:v1:path_<cyrb53Hash(articleId)>"
+      expect(key).to.include("stackup:enrich:v1:path_");
 
       const stored = JSON.parse(value);
       expect(stored.v).to.equal(1);
