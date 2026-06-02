@@ -532,6 +532,63 @@ describe("StackUp RTD Provider", function () {
 
       clock.restore();
     });
+
+    it("should respect an auction-delay budget smaller than params.timeout", function () {
+      // Core passes auctionDelay (e.g. 50 ms) as the 5th argument when
+      // the publisher configured waitForIt:true and auctionDelay > 0.
+      // The safety net must fire at min(params.timeout, budget) = 50 ms.
+      const clock = sinon.useFakeTimers();
+      const cb = sinon.spy();
+
+      const timeoutConfig = {
+        ...VALID_CONFIG,
+        params: { ...VALID_CONFIG.params, timeout: 300 },
+      };
+      subModuleObj.init(timeoutConfig, {});
+      // 5th arg = 50 ms auction-delay budget from core
+      subModuleObj.getBidRequestData(
+        { ortb2Fragments: { global: {} } },
+        cb,
+        timeoutConfig,
+        {},
+        50
+      );
+
+      expect(cb.called).to.be.false;
+      clock.tick(60); // past budget (50) but well under params.timeout (300)
+      expect(cb.calledOnce).to.be.true;
+
+      clock.restore();
+    });
+
+    it("should ignore a zero auction-delay budget (non-blocking) and use params.timeout", function () {
+      // Core passes 0 when the publisher runs us non-blocking (no waitForIt / no
+      // auctionDelay). We must NOT zero out our own timeout — fall back to params.timeout.
+      const clock = sinon.useFakeTimers();
+      const cb = sinon.spy();
+
+      const timeoutConfig = {
+        ...VALID_CONFIG,
+        params: { ...VALID_CONFIG.params, timeout: 100 },
+      };
+      subModuleObj.init(timeoutConfig, {});
+      // 5th arg = 0 (non-blocking path in core)
+      subModuleObj.getBidRequestData(
+        { ortb2Fragments: { global: {} } },
+        cb,
+        timeoutConfig,
+        {},
+        0
+      );
+
+      expect(cb.called).to.be.false;
+      clock.tick(50); // still within params.timeout — must NOT have fired yet
+      expect(cb.called).to.be.false;
+      clock.tick(60); // now past params.timeout (100 ms total)
+      expect(cb.calledOnce).to.be.true;
+
+      clock.restore();
+    });
   });
 
   // ── 8. schema validation (isValidEnrichment) ─────────────────────────────

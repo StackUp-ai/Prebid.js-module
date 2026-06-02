@@ -486,9 +486,19 @@ function resolveFromPath(): string | null {
 function getBidRequestData(
   reqBidsConfigObj: StartAuctionOptions,
   callback: () => void,
-  config: RTDProviderConfig<"stackupRtd">
+  config: RTDProviderConfig<"stackupRtd">,
+  _userConsent: AllConsentData,
+  timeout: number
 ): void {
-  const timeoutMs = config.params?.timeout ?? DEFAULT_TIMEOUT;
+  const ownTimeout = config.params?.timeout ?? DEFAULT_TIMEOUT;
+  // Honor the auction-delay budget passed by core as the 5th argument.
+  // Core computes it as `shouldDelayAuction ? auctionDelay : 0`, so it is 0
+  // when the publisher runs us non-blocking or omits auctionDelay entirely.
+  // A naive Math.min would zero-out our own budget in that case, so treat
+  // 0/falsy as "no external cap" and fall back to our own timeout.
+  const budget = isNumber(timeout) && timeout > 0 ? timeout : Infinity;
+  const effectiveTimeout = Math.min(ownTimeout, budget);
+
   let callbackFired = false;
   const release = () => {
     if (callbackFired) return; // CRITICAL — never call back twice
@@ -501,13 +511,13 @@ function getBidRequestData(
     if (state.state === "fetching") {
       logWarn(
         "[stackupRtd] enrichment fetch exceeded " +
-          timeoutMs +
+          effectiveTimeout +
           "ms, releasing auction clean"
       );
       state.state = "timedOut";
     }
     release();
-  }, timeoutMs);
+  }, effectiveTimeout);
 
   const onReady = () => {
     clearTimeout(timeoutId);
