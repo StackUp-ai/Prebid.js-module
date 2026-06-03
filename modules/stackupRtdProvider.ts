@@ -452,23 +452,17 @@ function resolveFromPath(): string | null {
       path = path.replace(/\/$/, "");
     }
 
-    // Strip common locale prefixes (/en/, /us/, /de/, etc.)
-    path = path.replace(
-      /^\/(en|us|uk|de|fr|es|it|jp|kr|cn)(-[a-z]{2})?\//,
-      "/"
-    );
+    // Strip AMP path variants — must mirror the server-side pipeline in normalize.ts
+    // so the client cache key (derived from articleId) is consistent across AMP and
+    // canonical URLs for the same article.
+    path = path.replace(/^\/amp\//, "/"); // AMP-first prefix: /amp/news/… → /news/…
+    path = path.replace(/\/_amp\//g, "/"); // Google AMP cache segment: /news/_amp/… → /news/…
+    path = path.replace(/\/amp\/?$/, ""); // AMP suffix: /news/article/amp → /news/article
 
-    // Strip AMP path variants
-    path = path.replace(/\/_amp\//, "/").replace(/\/amp\/?$/, "");
-
-    // Homepage — return "/" so the API can resolve homepage-level enrichment
-    if (path === "" || path === "/") return "/";
-
-    // For non-homepage paths require at least 2 segments to avoid sending
-    // section fronts like "/news" that are never stored as article rows.
-    // The API fallback chain (homepage → domain) handles misses gracefully.
-    const segments = path.split("/").filter(Boolean);
-    if (segments.length < 2) return null;
+    // Final collapse and trailing-slash cleanup after substitutions
+    path = path.replace(/\/{2,}/g, "/");
+    if (path.length > 1 && path.endsWith("/")) path = path.slice(0, -1);
+    path = path || "/";
 
     // Return the raw path — the API matches it against article_analysis.normalized_path.
     // The sessionStorage cache key is derived by hashing this value via cacheKey();
