@@ -1,4 +1,4 @@
-import { ajax } from "../src/ajax.ts";
+import { fetch as prebidFetch } from "../src/ajax.ts";
 import { AllConsentData } from "../src/consentHandler.ts";
 import { submodule } from "../src/hook.js";
 import { StartAuctionOptions } from "../src/prebid.ts";
@@ -57,6 +57,7 @@ interface RtdInternalState {
   articleId: string | null;
   enrichment: EnrichmentSnapshot | null;
   fetchPromise: Promise<EnrichmentSnapshot> | null;
+  fetchAbortController: AbortController | null;
   pendingCallbacks: Array<() => void>;
   snapshotsByAuctionId: Map<string, EnrichmentSnapshot>;
   config: RTDProviderConfig<"stackupRtd">;
@@ -67,6 +68,7 @@ const state: RtdInternalState = {
   articleId: null,
   enrichment: null,
   fetchPromise: null,
+  fetchAbortController: null,
   pendingCallbacks: [],
   snapshotsByAuctionId: new Map(),
   config: null as any,
@@ -290,50 +292,44 @@ function fetchEnrichment(
     return Promise.resolve({ ...cached, source: "cache" });
   }
 
-  return new Promise((resolve, reject) => {
-    const url = buildEnrichmentUrl(articleId, params);
-    const timeoutId = setTimeout(
-      () => reject(new Error("fetch timeout")),
-      (params.timeout ?? DEFAULT_TIMEOUT) + 50
-    );
+  // AbortController lets getBidRequestData abort this fetch from its safety net
+  // when the auction-delay budget is exceeded, stopping the wasted network round-trip.
+  const ctl = new AbortController();
+  state.fetchAbortController = ctl;
+  const timeoutMs = (params.timeout ?? DEFAULT_TIMEOUT) + 50;
+  const timeoutTimer = setTimeout(() => ctl.abort(), timeoutMs);
 
-    ajax(
-      url,
-      {
-        success: (response: string) => {
-          clearTimeout(timeoutId);
-          try {
-            const data = JSON.parse(response);
-            if (!isValidEnrichment(data)) {
-              return reject(new Error("schema validation failed"));
-            }
-            const snapshot: EnrichmentSnapshot = {
-              articleId,
-              fetchedAt: Date.now(),
-              source: "api",
-              site: {
-                content: {
-                  ...data.site.content,
-                  id: data.site.content.id ?? articleId,
-                },
-              },
-              user: { data: data.user?.data ?? [] },
-            };
-            setCachedEnrichment(articleId, snapshot);
-            resolve(snapshot);
-          } catch (e) {
-            reject(e);
-          }
+  const url = buildEnrichmentUrl(articleId, params);
+  return prebidFetch(url, { signal: ctl.signal })
+    .then((response) => {
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      return response.text();
+    })
+    .then((responseText) => {
+      clearTimeout(timeoutTimer);
+      const data = JSON.parse(responseText);
+      if (!isValidEnrichment(data)) {
+        throw new Error("schema validation failed");
+      }
+      const snapshot: EnrichmentSnapshot = {
+        articleId,
+        fetchedAt: Date.now(),
+        source: "api",
+        site: {
+          content: {
+            ...data.site.content,
+            id: data.site.content.id ?? articleId,
+          },
         },
-        error: (err: any) => {
-          clearTimeout(timeoutId);
-          reject(err);
-        },
-      },
-      null,
-      { method: "GET", withCredentials: false }
-    );
-  });
+        user: { data: data.user?.data ?? [] },
+      };
+      setCachedEnrichment(articleId, snapshot);
+      return snapshot;
+    })
+    .catch((err) => {
+      clearTimeout(timeoutTimer);
+      throw err;
+    });
 }
 
 function isValidEnrichment(data: any): data is RawEnrichmentResponse {
@@ -515,6 +511,9 @@ function getBidRequestData(
           "ms, releasing auction clean"
       );
       state.state = "timedOut";
+      // Abort the in-flight AJAX request so the network round-trip stops
+      // immediately rather than running until params.timeout fires.
+      state.fetchAbortController?.abort();
     }
     release();
   }, effectiveTimeout);
@@ -648,6 +647,7 @@ export function _resetStateForTesting(): void {
   state.articleId = null;
   state.enrichment = null;
   state.fetchPromise = null;
+  state.fetchAbortController = null;
   state.pendingCallbacks.length = 0;
   state.snapshotsByAuctionId.clear();
   state.config = null as any;
