@@ -121,27 +121,27 @@ describe("StackUp RTD Provider", function () {
   // ── 2. init – params validation ──────────────────────────────────────────
 
   describe("init – params validation", function () {
-    it("should return true and not fetch when config is undefined", function () {
-      expect(subModuleObj.init(undefined, {})).to.equal(true);
+    it("should return false and not fetch when config is undefined", function () {
+      expect(subModuleObj.init(undefined, {})).to.equal(false);
       expect(server.requests.length).to.equal(0);
     });
 
-    it("should return true and not fetch when params is missing", function () {
-      expect(subModuleObj.init({ name: "stackupRtd" }, {})).to.equal(true);
+    it("should return false and not fetch when params is missing", function () {
+      expect(subModuleObj.init({ name: "stackupRtd" }, {})).to.equal(false);
       expect(server.requests.length).to.equal(0);
     });
 
-    it("should return true and not fetch when pubId is missing", function () {
+    it("should return false and not fetch when pubId is missing", function () {
       expect(
         subModuleObj.init(
           { name: "stackupRtd", params: { apiUrl: MOCK_API_URL } },
           {}
         )
-      ).to.equal(true);
+      ).to.equal(false);
       expect(server.requests.length).to.equal(0);
     });
 
-    it("should return true and not fetch when articleId cannot be resolved", function () {
+    it("should return false and not fetch when articleId cannot be resolved", function () {
       // articleIdMode:explicit with no articleId → resolveArticleId returns null → no fetch
       expect(
         subModuleObj.init(
@@ -155,7 +155,7 @@ describe("StackUp RTD Provider", function () {
           },
           {}
         )
-      ).to.equal(true);
+      ).to.equal(false);
       expect(server.requests.length).to.equal(0);
     });
 

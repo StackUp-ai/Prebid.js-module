@@ -190,7 +190,7 @@ function init(
   if (!config) {
     logWarn("[stackupRtd] init called without config, module inert");
     state.state = "error";
-    return true;
+    return false;
   }
   state.config = config;
   state.state = "initializing";
@@ -200,14 +200,14 @@ function init(
   if (!params || !params.pubId) {
     logWarn("[stackupRtd] missing required params.pubId, module inert");
     state.state = "error";
-    return true;
+    return false;
   }
 
   // Respect consent — no enrichment if user has not granted relevant purposes
   if (!hasRequiredConsent(userConsent)) {
     logInfo("[stackupRtd] consent not granted, module inert");
     state.state = "error";
-    return true; // return true so Prebid still registers us
+    return false;
   }
 
   try {
@@ -216,14 +216,14 @@ function init(
   } catch (e) {
     logError("[stackupRtd] article id resolution failed", e);
     state.state = "error";
-    return true;
+    return false;
   }
 
   // Kick off background fetch — do not await
   if (!state.articleId) {
     logWarn("[stackupRtd] no article ID resolved, module inert");
     state.state = "error";
-    return true;
+    return false;
   }
   state.fetchPromise = fetchEnrichment(state.articleId, params);
   state.state = "fetching";
