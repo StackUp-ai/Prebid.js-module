@@ -30,7 +30,7 @@ const REQUIRED_PURPOSES = [1, 4];
 const MODULE_NAME = "stackupRtd";
 const MODULE_TYPE = "realTimeData";
 const DEFAULT_TIMEOUT = 300;
-const DEFAULT_API_URL = "https://api.stackup.ai/v1/enrich";
+const DEFAULT_API_URL = "https://api.stackup-ai.com/v1/enrich-ortb-rtd";
 const CACHE_KEY_PREFIX = "stackup:enrich:v1:";
 const CACHE_SCHEMA_VERSION = 1;
 // Maximum number of auction snapshots to keep in memory at once.
@@ -75,7 +75,7 @@ const state: RtdInternalState = {
 };
 
 export interface StackupRtdParams {
-  apiUrl?: string; // default: "https://api.stackup.ai/v1/enrich"
+  apiUrl?: string; // default: "https://api.stackup-ai.com/v1/enrich-ortb-rtd"
   pubId: string; // Publisher ID issued by Stackup
   timeout?: number; // default: 300 ms
   articleId?: string;
@@ -294,10 +294,10 @@ function fetchEnrichment(
 
   // AbortController lets getBidRequestData abort this fetch from its safety net
   // when the auction-delay budget is exceeded, stopping the wasted network round-trip.
+  // The safety net in getBidRequestData fires at params.timeout and is the single
+  // source of truth for abort timing — do not add a second independent timer here.
   const ctl = new AbortController();
   state.fetchAbortController = ctl;
-  const timeoutMs = (params.timeout ?? DEFAULT_TIMEOUT) + 50;
-  const timeoutTimer = setTimeout(() => ctl.abort(), timeoutMs);
 
   const url = buildEnrichmentUrl(articleId, params);
   return prebidFetch(url, { signal: ctl.signal })
@@ -306,7 +306,6 @@ function fetchEnrichment(
       return response.text();
     })
     .then((responseText) => {
-      clearTimeout(timeoutTimer);
       const data = JSON.parse(responseText);
       if (!isValidEnrichment(data)) {
         throw new Error("schema validation failed");
@@ -327,7 +326,6 @@ function fetchEnrichment(
       return snapshot;
     })
     .catch((err) => {
-      clearTimeout(timeoutTimer);
       throw err;
     });
 }

@@ -251,6 +251,13 @@ describe("StackUp RTD Provider", function () {
       expect(server.requests.length).to.equal(0);
     });
 
+    it("should not fetch when GDPR applies but vendorData is absent (CMP error/timeout)", function () {
+      subModuleObj.init(VALID_CONFIG, {
+        gdpr: { gdprApplies: true },
+      });
+      expect(server.requests.length).to.equal(0);
+    });
+
     it("should fetch when GDPR applies and purposes 1+4 are both consented", function () {
       subModuleObj.init(VALID_CONFIG, {
         gdpr: {
