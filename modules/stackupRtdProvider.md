@@ -1,25 +1,25 @@
-# StackUP RTD Provider
+# Stack Up RTD Provider
 
 ## Overview
 
-Module Name: StackUP Rtd Provider  
+Module Name: Stack Up Rtd Provider  
 Module Type: Rtd Provider  
 Maintainer: anton@stackup-ai.com
 
 ## Description
 
-The StackUP RTD module enriches Prebid.js bid requests with contextual and audience segments derived from the content of the current page. Before the auction fires, the module calls the StackUP enrichment API (or reads from a `sessionStorage` cache on revisit) and merges the response into the global `ortb2` fragments:
+The Stack Up RTD module enriches Prebid.js bid requests with contextual and audience segments derived from the content of the current page. Before the auction fires, the module calls the Stack Up enrichment API (or reads from a `sessionStorage` cache on revisit) and merges the response into the global `ortb2` fragments:
 
 - **`site.content.data`** — IAB Content Taxonomy 3.1 segments (segtax 3), such as topics, brand-safety signals and emotion signals attached to the article.
 - **`user.data`** — IAB Audience Taxonomy 1.1 segments (segtax 4) inferred from contextual signals.
 
-Every bidder that participates in the auction receives these segments in its `ortb2` object. No cookies, fingerprints, or user identifiers are transmitted to the StackUP API — only a URL path and publisher domain.
+Every bidder that participates in the auction receives these segments in its `ortb2` object. No cookies, fingerprints, or user identifiers are transmitted to the Stack Up API — only a URL path and publisher domain.
 
 Contact [anton@stackup-ai.com](mailto:anton@stackup-ai.com) to obtain a `pubId`.
 
 ## Build
 
-Include the StackUP RTD module and the core RTD module when building Prebid.js:
+Include the Stack Up RTD module and the core RTD module when building Prebid.js:
 
 ```bash
 gulp build --modules=rtdModule,stackupRtdProvider
@@ -44,7 +44,7 @@ pbjs.setConfig({
         name: "stackupRtd",
         waitForIt: true, // keep in sync with auctionDelay
         params: {
-          pubId: "YOUR-PUB-ID", // required — issued by StackUP
+          pubId: "YOUR-PUB-ID", // required — issued by Stack Up
           timeout: 300, // optional — enrichment budget in ms (default: 300)
           articleIdMode: "path", // optional — 'path' (default) or 'explicit'
           articleId: "", // required when articleIdMode is 'explicit'
@@ -66,11 +66,11 @@ pbjs.setConfig({
 | `name`                    |  required   | String  | Must be `'stackupRtd'`                                                                                                      |                         —                         |
 | `waitForIt`               | recommended | Boolean | Set `true` when an `auctionDelay` is defined                                                                                |                      `false`                      |
 | `params`                  |  required   | Object  | Module configuration                                                                                                        |                         —                         |
-| `params.pubId`            |  required   | String  | Publisher ID issued by StackUP                                                                                              |                         —                         |
+| `params.pubId`            |  required   | String  | Publisher ID issued by Stack Up                                                                                             |                         —                         |
 | `params.timeout`          |  optional   | Integer | Max ms to wait for the enrichment API before releasing the auction                                                          |                       `300`                       |
 | `params.articleIdMode`    |  optional   | String  | How the article ID is determined. `'path'` derives it from the page URL path; `'explicit'` uses `params.articleId` directly |                     `'path'`                      |
 | `params.articleId`        | optional\*  | String  | Article identifier — required when `articleIdMode` is `'explicit'`. Max 512 characters                                      |                         —                         |
-| `params.apiUrl`           |  optional   | String  | Override the StackUP enrichment endpoint                                                                                    | `'https://api.stackup-ai.com/v1/enrich-ortb-rtd'` |
+| `params.apiUrl`           |  optional   | String  | Override the Stack Up enrichment endpoint                                                                                   | `'https://api.stackup-ai.com/v1/enrich-ortb-rtd'` |
 | `params.cache.ttlSeconds` |  optional   | Integer | How long a cached result is considered fresh (sessionStorage TTL)                                                           |                      `3600`                       |
 | `params.debug`            |  optional   | Boolean | Enable verbose `[stackupRtd]` console logging                                                                               |                      `false`                      |
 | `params.debugDomain`      |  optional   | String  | Override the domain sent to the API when `debug: true`                                                                      |                    page domain                    |
@@ -81,7 +81,7 @@ The module respects user consent before making any network requests:
 
 - **COPPA**: if `coppa: true` is set, the module is inert.
 - **GDPR**: when GDPR applies, the module requires consent (or legitimate interest) for **Purpose 1** (Store/access information on a device) and **Purpose 4** (Select personalised content). If either purpose is missing, or if `vendorData` is absent (e.g. CMP timeout), the module does nothing.
-- **USP / CCPA / GPP**: not enforced — the StackUP API receives only a URL path and domain, no user identifiers, so US sale-of-data frameworks do not apply.
+- **USP / CCPA / GPP**: not enforced — the Stack Up API receives only a URL path and domain, no user identifiers, so US sale-of-data frameworks do not apply.
 
 ## Article ID Resolution
 
@@ -103,7 +103,7 @@ Pass a stable, opaque article identifier directly in `params.articleId`. Use thi
 
 On the first visit to a page the module fetches from the API and writes the result to `sessionStorage` under the key:
 
-```
+```text
 stackup:enrich:v1:path_<hash>
 ```
 
@@ -160,20 +160,6 @@ After a successful enrichment the following fields are merged into the global `o
 
 `site.content.ext.brand_safety` and `site.content.ext.emotion` are optional fields populated when the API returns them. Existing publisher values in `ext` are preserved — the module only fills fields that are absent.
 
-## Analytics Adapter Integration
-
-After each auction the module stores the enrichment snapshot in an in-memory map keyed by `auctionId`. Analytics adapters can read it to correlate auction outcomes with content segments:
-
-```javascript
-// Available on the exported module object after auction fires
-const snapshot = pbjs
-  .getEvents()
-  .filter((e) => e.eventType === "auctionEnd")
-  .map((e) => stackupRtdProvider.getSnapshotForAuction(e.args.auctionId));
-```
-
-The map retains up to the last 10 auctions (FIFO eviction) to avoid unbounded memory growth in long-lived SPA sessions.
-
 ## Integration Example
 
 ```bash
@@ -182,7 +168,7 @@ gulp build --modules=rtdModule,stackupRtdProvider,appnexusBidAdapter
 
 Start a static file server at the repo root on port 9999, then open:
 
-```
+```text
 http://localhost:9999/integrationExamples/gpt/stackupRtdProvider_example.html
 ```
 
