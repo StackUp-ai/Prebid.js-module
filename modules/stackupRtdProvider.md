@@ -4,7 +4,7 @@
 
 Module Name: Stack Up Rtd Provider  
 Module Type: Rtd Provider  
-Maintainer: anton@stackup-ai.com
+Maintainers: anton@stackup-ai.com, chen@stackup-ai.com, nicolas@stackup-ai.com
 
 ## Description
 
@@ -15,7 +15,7 @@ The Stack Up RTD module enriches Prebid.js bid requests with contextual and audi
 
 Every bidder that participates in the auction receives these segments in its `ortb2` object. No cookies, fingerprints, or user identifiers are transmitted to the Stack Up API — only a URL path and publisher domain.
 
-Contact [anton@stackup-ai.com](mailto:anton@stackup-ai.com) to obtain a `pubId`.
+Become a member of Stack Up in order to receive your `pubId`. Contact [chen@stackup-ai.com](mailto:chen@stackup-ai.com) for more details.
 
 ## Build
 
@@ -67,7 +67,7 @@ pbjs.setConfig({
 | `waitForIt`               | recommended | Boolean | Set `true` when an `auctionDelay` is defined                                                                                |                      `false`                      |
 | `params`                  |  required   | Object  | Module configuration                                                                                                        |                         —                         |
 | `params.pubId`            |  required   | String  | Publisher ID issued by Stack Up                                                                                             |                         —                         |
-| `params.timeout`          |  optional   | Integer | Max ms to wait for the enrichment API before releasing the auction                                                          |                       `300`                       |
+| `params.timeout`          |  optional   | Integer | Max ms to wait for the enrichment API before releasing the auction |                       `300`                       |
 | `params.articleIdMode`    |  optional   | String  | How the article ID is determined. `'path'` derives it from the page URL path; `'explicit'` uses `params.articleId` directly |                     `'path'`                      |
 | `params.articleId`        | optional\*  | String  | Article identifier — required when `articleIdMode` is `'explicit'`. Max 512 characters                                      |                         —                         |
 | `params.apiUrl`           |  optional   | String  | Override the Stack Up enrichment endpoint                                                                                   | `'https://api.stackup-ai.com/v1/enrich-ortb-rtd'` |

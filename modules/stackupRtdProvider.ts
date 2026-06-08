@@ -2,7 +2,6 @@ import { fetch as prebidFetch } from "../src/ajax.ts";
 import { AllConsentData } from "../src/consentHandler.ts";
 import { submodule } from "../src/hook.js";
 import { StartAuctionOptions } from "../src/prebid.ts";
-// import { StartAuctionOptions } from "../src/prebid.js";
 import {
   getStorageManager,
   discloseStorageUse,
