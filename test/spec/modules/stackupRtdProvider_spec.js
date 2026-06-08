@@ -29,8 +29,8 @@ const VALID_API_RESPONSE = {
       title: "Test Article Title",
       data: [
         {
-          name: "stackup-ai.com",
-          ext: { segtax: 3 },
+          name: "data.stackup-ai.com",
+          ext: { segtax: 502 },
           segment: [
             { id: "113", name: "Security", ext: { confidence: 0.95 } },
             { id: "79", name: "Mobile Devices", ext: { confidence: 0.9 } },
@@ -50,8 +50,8 @@ const VALID_API_RESPONSE = {
   user: {
     data: [
       {
-        name: "stackup-ai.com",
-        ext: { segtax: 4 },
+        name: "data.stackup-ai.com",
+        ext: { segtax: 501 },
         segment: [{ id: "1", name: "25-34", ext: { confidence: 0.85 } }],
       },
     ],
@@ -423,7 +423,7 @@ describe("StackUp RTD Provider", function () {
       subModuleObj.getBidRequestData(req, sinon.spy(), VALID_CONFIG);
       expect(req.ortb2Fragments.global.site.content.data).to.have.length(1);
       expect(req.ortb2Fragments.global.site.content.data[0].name).to.equal(
-        "stackup-ai.com"
+        "data.stackup-ai.com"
       );
     });
 
@@ -432,7 +432,7 @@ describe("StackUp RTD Provider", function () {
       subModuleObj.getBidRequestData(req, sinon.spy(), VALID_CONFIG);
       expect(req.ortb2Fragments.global.user.data).to.have.length(1);
       expect(req.ortb2Fragments.global.user.data[0].name).to.equal(
-        "stackup-ai.com"
+        "data.stackup-ai.com"
       );
     });
 
@@ -624,7 +624,7 @@ describe("StackUp RTD Provider", function () {
       expect(req.ortb2Fragments.global.site).to.be.undefined;
     });
 
-    it("should reject content segments with segtax !== 3", async function () {
+    it("should reject content segments with segtax !== 502", async function () {
       const bad = JSON.parse(JSON.stringify(VALID_API_RESPONSE));
       bad.site.content.data[0].ext.segtax = 999;
       const req = await runAndGetReq(bad);
@@ -692,7 +692,7 @@ describe("StackUp RTD Provider", function () {
                 data: [
                   {
                     name: "other-provider.com",
-                    ext: { segtax: 3 },
+                    ext: { segtax: 502 },
                     segment: [{ id: "x", name: "X" }],
                   },
                 ],
@@ -713,8 +713,8 @@ describe("StackUp RTD Provider", function () {
               content: {
                 data: [
                   {
-                    name: "stackup-ai.com",
-                    ext: { segtax: 3 },
+                    name: "data.stackup-ai.com",
+                    ext: { segtax: 502 },
                     segment: [{ id: "old", name: "Old Segment" }],
                   },
                 ],

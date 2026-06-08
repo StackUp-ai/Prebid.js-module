@@ -10,8 +10,8 @@ Maintainers: anton@stackup-ai.com, chen@stackup-ai.com, nicolas@stackup-ai.com
 
 The Stack Up RTD module enriches Prebid.js bid requests with contextual and audience segments derived from the content of the current page. Before the auction fires, the module calls the Stack Up enrichment API (or reads from a `sessionStorage` cache on revisit) and merges the response into the global `ortb2` fragments:
 
-- **`site.content.data`** — IAB Content Taxonomy 3.1 segments (segtax 3), such as topics, brand-safety signals and emotion signals attached to the article.
-- **`user.data`** — IAB Audience Taxonomy 1.1 segments (segtax 4) inferred from contextual signals.
+- **`site.content.data`** — Stack Up Content Taxonomy 1.0 segments (segtax 502), such as topics, brand-safety signals and emotion signals attached to the article.
+- **`user.data`** — Stack Up Audience Taxonomy 1.0 segments (segtax 501) inferred from contextual signals.
 
 Every bidder that participates in the auction receives these segments in its `ortb2` object. No cookies, fingerprints, or user identifiers are transmitted to the Stack Up API — only a URL path and publisher domain.
 
@@ -67,7 +67,7 @@ pbjs.setConfig({
 | `waitForIt`               | recommended | Boolean | Set `true` when an `auctionDelay` is defined                                                                                |                      `false`                      |
 | `params`                  |  required   | Object  | Module configuration                                                                                                        |                         —                         |
 | `params.pubId`            |  required   | String  | Publisher ID issued by Stack Up                                                                                             |                         —                         |
-| `params.timeout`          |  optional   | Integer | Max ms to wait for the enrichment API before releasing the auction |                       `300`                       |
+| `params.timeout`          |  optional   | Integer | Max ms to wait for the enrichment API before releasing the auction                                                          |                       `300`                       |
 | `params.articleIdMode`    |  optional   | String  | How the article ID is determined. `'path'` derives it from the page URL path; `'explicit'` uses `params.articleId` directly |                     `'path'`                      |
 | `params.articleId`        | optional\*  | String  | Article identifier — required when `articleIdMode` is `'explicit'`. Max 512 characters                                      |                         —                         |
 | `params.apiUrl`           |  optional   | String  | Override the Stack Up enrichment endpoint                                                                                   | `'https://api.stackup-ai.com/v1/enrich-ortb-rtd'` |
@@ -123,8 +123,8 @@ After a successful enrichment the following fields are merged into the global `o
       "title": "<article title>",
       "data": [
         {
-          "name": "stackup-ai.com",
-          "ext": { "segtax": 3 },
+          "name": "data.stackup-ai.com",
+          "ext": { "segtax": 502 },
           "segment": [
             {
               "id": "IAB-123",
@@ -143,8 +143,8 @@ After a successful enrichment the following fields are merged into the global `o
   "user": {
     "data": [
       {
-        "name": "stackup-ai.com",
-        "ext": { "segtax": 4 },
+        "name": "data.stackup-ai.com",
+        "ext": { "segtax": 501 },
         "segment": [
           {
             "id": "AUD-456",

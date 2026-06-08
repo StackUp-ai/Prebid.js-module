@@ -122,22 +122,32 @@ export interface EnrichmentSnapshot {
 }
 
 export interface Ortb2ContentSegment {
-  name: string; // provider domain, e.g. 'stackup-ai.com'
-  ext: { segtax: 3 }; // IAB Content Taxonomy 3.1
+  id?: string;
+  name: string; // provider domain: 'data.stackup-ai.com'
+  ext: {
+    segtax: 502; // StackUP Content Taxonomy 1.0
+    stackup?: { taxonomy_version: string; source_tier?: string };
+  };
   segment: Array<{
     id: string;
-    name: string;
-    ext?: { confidence: number };
+    name?: string;  // optional — some segments carry only id + value
+    value?: string;
+    ext?: { confidence?: number };
   }>;
 }
 
 export interface Ortb2UserSegment {
-  name: string;
-  ext: { segtax: 4 }; // IAB Audience Taxonomy 1.1
+  id?: string;
+  name: string; // provider domain: 'data.stackup-ai.com'
+  ext: {
+    segtax: 501; // StackUP Audience Taxonomy 1.0 — one block per dimension
+    stackup?: { dimension: string; taxonomy_version: string };
+  };
   segment: Array<{
     id: string;
-    name: string;
-    ext?: { confidence: number };
+    name?: string;  // optional — profile dimension uses only id + value
+    value?: string;
+    ext?: { confidence?: number };
   }>;
 }
 
@@ -334,14 +344,17 @@ function isValidEnrichment(data: any): data is RawEnrichmentResponse {
   if (!data.site?.content) return false;
   if (!isArray(data.site.content.data)) return false;
 
-  // Validate every segment in site.content.data
+  // Validate every segment in site.content.data.
+  // segtax 502 = StackUP Content Taxonomy 1.0 — the only value emitted by the
+  // StackUP worker and returned by the /v1/enrich-ortb-rtd endpoint.
   for (const block of data.site.content.data) {
     if (!isStr(block.name)) return false;
-    if (block.ext?.segtax !== 3) return false; // must be IAB Content Taxonomy 3.1
+    if (block.ext?.segtax !== 502) return false;
     if (!isArray(block.segment)) return false;
     for (const seg of block.segment) {
       if (!isStr(seg.id)) return false;
-      if (!isStr(seg.name)) return false;
+      // name is optional — some dimensions (e.g. profile) carry only id + value
+      if (seg.name !== undefined && !isStr(seg.name)) return false;
       if (seg.ext?.confidence !== undefined) {
         if (!isNumber(seg.ext.confidence)) return false;
         if (seg.ext.confidence < 0 || seg.ext.confidence > 1) return false;
