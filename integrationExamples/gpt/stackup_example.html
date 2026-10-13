@@ -2,12 +2,21 @@
   Manual test page for the Stackup bid adapter (modules/stackupBidAdapter.ts).
 
   Usage:
-    1. npx gulp build --modules=stackupBidAdapter
-    2. npx gulp serve-and-test   (or `npx gulp serve` + open this file through
-       that server, e.g. http://localhost:9999/integrationExamples/gpt/stackup_example.html)
-    3. Point STACKUP_ENDPOINT below at your local PBS (default already set to
-       http://localhost:8000/openrtb2/auction) and make sure PBS is running
-       with the `tag` seeded (see sample/stackup/README.md, tag "seed-tag-1").
+    1. npx gulp serve --modules=stackupBidAdapter
+       (serve builds the dev bundle this page loads, build/dev/prebid.js, and
+       serves the repo; a plain `gulp build` writes build/dist/ instead)
+    2. Open http://localhost:9999/integrationExamples/gpt/stackup_example.html
+    3. Run stackup-prebid-server with sample/stackup/app.yaml (direct demand
+       on, filesystem fixture). STACKUP_ENDPOINT below already points at
+       http://localhost:8000/openrtb2/auction.
+
+  Tags default to the PBS sample fixture (sample/stackup/entities), which
+  fills from a browser with no extra signals:
+    - cascade-web-banner    banner 300x250 (li-cascade-banner)
+    - cascade-live-preroll  video (li-cascade-house-fill, untargeted)
+  Override with ?banner=<tag>&video=<tag>. The back-office seed tag
+  seed-tag-1 is video + US + CTV only: a desktop browser sends no CDN
+  country header, so it won't fill from this page.
 
   The banner ad unit renders through GPT, same pattern as hello_world.html.
   The video ad unit has no player wired up here -- it just dumps the winning
@@ -28,6 +37,10 @@
         // the adapter's production default.
         var STACKUP_ENDPOINT = 'http://localhost:8000/openrtb2/auction';
 
+        var params = new URLSearchParams(window.location.search);
+        var BANNER_TAG = params.get('banner') || 'cascade-web-banner';
+        var VIDEO_TAG = params.get('video') || 'cascade-live-preroll';
+
         var adUnits = [{
             code: 'div-gpt-ad-stackup-banner',
             mediaTypes: {
@@ -38,7 +51,7 @@
             bids: [{
                 bidder: 'stackup',
                 params: {
-                    tag: 'seed-tag-1'
+                    tag: BANNER_TAG
                 }
             }]
         }, {
@@ -54,7 +67,7 @@
             bids: [{
                 bidder: 'stackup',
                 params: {
-                    tag: 'seed-tag-1'
+                    tag: VIDEO_TAG
                 }
             }]
         }];
@@ -71,6 +84,14 @@
         });
 
         pbjs.que.push(function () {
+            // Stackup video bids carry inline VAST (vastXml) only. Without a
+            // cache setting, Prebid core drops every one of them
+            // (src/video.ts). A real deployment would configure cache.url;
+            // this page has no Prebid Cache, so accept vastXml-only bids.
+            pbjs.setConfig({
+                cache: { allowVastXmlOnly: true }
+            });
+
             pbjs.setBidderConfig({
                 bidders: ['stackup'],
                 config: {
@@ -141,15 +162,19 @@
 <body>
     <h2>Stackup Bid Adapter Test Page</h2>
 
-    <h5>Banner (div-gpt-ad-stackup-banner, tag: seed-tag-1)</h5>
+    <h5>Banner (div-gpt-ad-stackup-banner, tag: <span id='banner-tag'></span>)</h5>
     <div id='div-gpt-ad-stackup-banner'>
         <script type='text/javascript'>
             googletag.cmd.push(function () { googletag.display('div-gpt-ad-stackup-banner'); });
         </script>
     </div>
 
-    <h5>Video (stackup-video, tag: seed-tag-1) -- raw bid debug, no player</h5>
+    <h5>Video (stackup-video, tag: <span id='video-tag'></span>) -- raw bid debug, no player</h5>
     <pre id='video-debug'>Waiting for bids...</pre>
+    <script>
+        document.getElementById('banner-tag').textContent = BANNER_TAG;
+        document.getElementById('video-tag').textContent = VIDEO_TAG;
+    </script>
 </body>
 
 </html>
