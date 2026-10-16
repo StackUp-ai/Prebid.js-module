@@ -3,7 +3,7 @@ import { config } from 'src/config.js';
 import { spec } from '../../../modules/stackupBidAdapter.ts';
 
 const DEFAULT_ENDPOINT = 'https://adserver.stackup-ai.com/openrtb2/auction';
-const LOCAL_ENDPOINT = 'http://localhost:8000/openrtb2/auction';
+const CUSTOM_ENDPOINT = 'https://pbs.example.com/openrtb2/auction';
 
 const bannerBidRequestBase = {
   adUnitCode: 'banner-ad-unit-code',
@@ -12,7 +12,7 @@ const bannerBidRequestBase = {
   bidder: 'stackup',
   bidderRequestId: 'bidder-request-id',
   mediaTypes: { banner: { sizes: [[300, 250]] } },
-  params: { tag: 'seed-tag-1' },
+  params: { tag: 'test-tag' },
 };
 
 const videoBidRequestBase = {
@@ -29,7 +29,7 @@ const videoBidRequestBase = {
       protocols: [2, 3, 7],
     },
   },
-  params: { tag: 'seed-tag-1' },
+  params: { tag: 'test-tag' },
 };
 
 const bannerServerResponseBase = {
@@ -53,7 +53,7 @@ const bannerServerResponseBase = {
   },
 };
 
-const VAST_XML = '<VAST version="4.2"><Ad id="seed"><InLine></InLine></Ad></VAST>';
+const VAST_XML = '<VAST version="4.2"><Ad id="test-ad"><InLine></InLine></Ad></VAST>';
 
 const videoServerResponseBase = {
   body: {
@@ -126,12 +126,19 @@ describe('Stackup bid adapter', () => {
     });
 
     it('rejects a missing tag', () => {
-      bannerBidRequest.params = { placementId: 'seed-tag-1' };
+      bannerBidRequest.params = { placementId: 'test-tag' };
       expect(spec.isBidRequestValid(bannerBidRequest)).to.be.false;
     });
 
-    [123, true, {}, [], null, ''].forEach((tag) => {
-      it(`rejects tag ${JSON.stringify(tag)}`, () => {
+    [
+      ['a number', 123],
+      ['a boolean', true],
+      ['an object', {}],
+      ['an array', []],
+      ['null', null],
+      ['an empty string', ''],
+    ].forEach(([description, tag]) => {
+      it(`rejects a tag that is ${description}`, () => {
         bannerBidRequest.params = { tag };
         expect(spec.isBidRequestValid(bannerBidRequest)).to.be.false;
       });
@@ -158,10 +165,10 @@ describe('Stackup bid adapter', () => {
     });
 
     it('uses the endpoint from stackup config', () => {
-      config.setConfig({ stackup: { endpoint: LOCAL_ENDPOINT } });
+      config.setConfig({ stackup: { endpoint: CUSTOM_ENDPOINT } });
       const request = spec.buildRequests([bannerBidRequest], bidderRequestFor([bannerBidRequest]));
 
-      expect(request.url).to.equal(LOCAL_ENDPOINT);
+      expect(request.url).to.equal(CUSTOM_ENDPOINT);
     });
 
     it('ignores an endpoint that is not an http(s) URL', () => {
@@ -175,7 +182,7 @@ describe('Stackup bid adapter', () => {
       const request = spec.buildRequests([bannerBidRequest], bidderRequestFor([bannerBidRequest]));
       const imp = request.data.imp[0];
 
-      expect(imp.ext.prebid.bidder.stackup).to.deep.equal({ tag: 'seed-tag-1' });
+      expect(imp.ext.prebid.bidder.stackup).to.deep.equal({ tag: 'test-tag' });
       expect(imp.ext.prebid).to.not.have.property('bidders');
     });
 
@@ -204,7 +211,9 @@ describe('Stackup bid adapter', () => {
       const request = spec.buildRequests(bids, bidderRequestFor(bids));
 
       expect(request).to.not.be.an('array');
-      expect(request.data.imp.map((imp) => imp.id)).to.deep.equal(['banner-bid-id', 'video-bid-id']);
+      expect(request.data.imp).to.have.length(2);
+      expect(request.data.imp[0].id).to.equal('banner-bid-id');
+      expect(request.data.imp[1].id).to.equal('video-bid-id');
       expect(request.data.imp[1].ext.prebid.bidder.stackup.tag).to.equal('other-tag');
     });
   });

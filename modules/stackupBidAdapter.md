@@ -10,40 +10,39 @@ Maintainer: anton@stackup-ai.com
 
 # Description
 
-Connects to StackUp's Prebid Server. The adapter sends one OpenRTB request per
-auction to the standard `/openrtb2/auction` endpoint; StackUp's direct demand
-answers for each ad unit's supply tag. Banner and video are supported.
+Connects to StackUp's ad server. The adapter sends one OpenRTB request per
+auction, with one imp per ad unit. Banner and video are supported.
 
 The only bidder param is `tag`, the supply tag ID for this placement
-(`[A-Za-z0-9_-]`, up to 128 characters). It is sent as
-`imp[].ext.prebid.bidder.stackup.tag`.
-
-The earlier `placementId` param is no longer supported: ad units that still
-pass it are rejected by the adapter, and StackUp's Prebid Server rejects it too.
+(`[A-Za-z0-9_-]`, up to 128 characters).
 
 Use the bidder code `stackup` directly. Don't alias it
-(`pbjs.aliasBidder('stackup', …)`): an alias moves the params to
-`ext.prebid.bidder.<alias>`, where StackUp's Prebid Server doesn't look, so
-the ad unit gets no bid.
+(`pbjs.aliasBidder('stackup', …)`): aliased requests don't get bids.
+
+# GDPR
+
+StackUp is not yet registered with the IAB TCF, so the adapter declares no
+GVL ID. When GDPR applies and the TCF control module enforces its default
+rules, the `stackup` bidder is blocked on that traffic. Traffic where GDPR
+doesn't apply is unaffected.
 
 # Bid params
 
-| Name  | Scope    | Description                       | Example                | Type     |
-|-------|----------|------------------------------------|------------------------|----------|
-| `tag` | required | Supply tag ID for this placement   | `'cascade-web-banner'` | `string` |
+| Name  | Scope    | Description                       | Example      | Type     |
+|-------|----------|------------------------------------|--------------|----------|
+| `tag` | required | Supply tag ID for this placement   | `'test-tag'` | `string` |
 
 # Endpoint
 
-Defaults to production (`https://adserver.stackup-ai.com/openrtb2/auction`).
-Override it per environment:
+Defaults to `https://adserver.stackup-ai.com/openrtb2/auction`. Override it
+per environment:
 
 ```js
 pbjs.setBidderConfig({
   bidders: ['stackup'],
   config: {
     stackup: {
-      // staging: 'https://staging-adserver.stackup-ai.com/openrtb2/auction'
-      endpoint: 'http://localhost:8000/openrtb2/auction'
+      endpoint: 'http://adserver.example.com/openrtb2/auction'
     }
   }
 });
@@ -63,11 +62,6 @@ pbjs.setConfig({ cache: { allowVastXmlOnly: true } });                         /
 
 # Test parameters
 
-These tags exist in StackUp Prebid Server's local sample book
-(`sample/stackup/entities`) and fill from a desktop browser with no extra
-signals. Tags created in the back office work the same way, subject to their
-line items' targeting.
-
 ```js
 const adUnits = [
   {
@@ -82,7 +76,7 @@ const adUnits = [
     },
     bids: [{
       bidder: 'stackup',
-      params: { tag: 'cascade-live-preroll' }
+      params: { tag: 'test-tag' }
     }]
   },
   {
@@ -92,7 +86,7 @@ const adUnits = [
     },
     bids: [{
       bidder: 'stackup',
-      params: { tag: 'cascade-web-banner' }
+      params: { tag: 'test-tag' }
     }]
   }
 ];

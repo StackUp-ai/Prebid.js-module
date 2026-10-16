@@ -14,7 +14,7 @@ interface StackupBidParams {
 
 interface StackupConfig {
   /**
-   * Overrides the Prebid Server auction endpoint. Defaults to production.
+   * Overrides the auction endpoint.
    */
   endpoint?: string;
 }
@@ -36,8 +36,7 @@ const DEFAULT_ENDPOINT = 'https://adserver.stackup-ai.com/openrtb2/auction';
 const DEFAULT_TTL = 300;
 const TAG_PATTERN = /^[A-Za-z0-9_-]{1,128}$/;
 
-// pbsExtensions places the bidder params at imp.ext.prebid.bidder.stackup,
-// which is where PBS reads the tag.
+// pbsExtensions places the bidder params at imp.ext.prebid.bidder.stackup.
 const converter = ortbConverter<typeof BIDDER_CODE>({
   context: {
     netRevenue: true,
@@ -68,7 +67,7 @@ const isBidRequestValid: BidderSpec<typeof BIDDER_CODE>['isBidRequestValid'] = (
 };
 
 // One request per auction: every valid ad unit becomes an imp of a single
-// OpenRTB request to PBS /openrtb2/auction.
+// OpenRTB request.
 const buildRequests: BidderSpec<typeof BIDDER_CODE>['buildRequests'] = (validBidRequests, bidderRequest) => {
   const data = converter.toORTB({
     bidRequests: validBidRequests,
