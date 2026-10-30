@@ -16,14 +16,14 @@ auction, with one imp per ad unit. Banner and video are supported.
 The only bidder param is `tag`, the supply tag ID for this placement
 (`[A-Za-z0-9_-]`, up to 128 characters).
 
-Use the bidder code `stackup` directly. Don't alias it
-(`pbjs.aliasBidder('stackup', …)`): aliased requests don't get bids.
+Use the bidder code `stackupai` directly. Don't alias it
+(`pbjs.aliasBidder('stackupai', …)`): aliased requests don't get bids.
 
 # GDPR
 
 StackUp is not yet registered with the IAB TCF, so the adapter declares no
 GVL ID. When GDPR applies and the TCF control module enforces its default
-rules, the `stackup` bidder is blocked on that traffic. Traffic where GDPR
+rules, the `stackupai` bidder is blocked on that traffic. Traffic where GDPR
 doesn't apply is unaffected.
 
 # Bid params
@@ -59,7 +59,7 @@ const adUnits = [
       }
     },
     bids: [{
-      bidder: 'stackup',
+      bidder: 'stackupai',
       params: { tag: 'test-tag' }
     }]
   },
@@ -69,7 +69,7 @@ const adUnits = [
       banner: { sizes: [[300, 250]] }
     },
     bids: [{
-      bidder: 'stackup',
+      bidder: 'stackupai',
       params: { tag: 'test-tag' }
     }]
   }

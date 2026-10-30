@@ -32,7 +32,7 @@ declare module '../src/config' {
   }
 }
 
-const BIDDER_CODE = 'stackup';
+const BIDDER_CODE = 'stackupai';
 const DEFAULT_ENDPOINT = 'https://adserver.stackup-ai.com/openrtb2/auction';
 const DEFAULT_TTL = 300;
 const TAG_PATTERN = /^[A-Za-z0-9_-]{1,128}$/;
@@ -40,7 +40,7 @@ const TAG_PATTERN = /^[A-Za-z0-9_-]{1,128}$/;
 const MAX_TIMEOUT_BIDS = 20;
 const MAX_BID_ID_LENGTH = 64;
 
-// pbsExtensions places the bidder params at imp.ext.prebid.bidder.stackup.
+// pbsExtensions places the bidder params at imp.ext.prebid.bidder.stackupai.
 const converter = ortbConverter<typeof BIDDER_CODE>({
   context: {
     netRevenue: true,
@@ -103,7 +103,7 @@ const interpretResponse: BidderSpec<typeof BIDDER_CODE>['interpretResponse'] = (
 };
 
 // Before calling onTimeout, Prebid replaces a timed-out bid's params with every
-// stackup params object in its ad unit (adapterManager.callTimedOutBidders), so
+// stackupai params object in its ad unit (adapterManager.callTimedOutBidders), so
 // the bid's own tag is only known when they all name the same one.
 const timedOutTag = (params: unknown): string | undefined => {
   const all: any[] = Array.isArray(params) ? params : [params];

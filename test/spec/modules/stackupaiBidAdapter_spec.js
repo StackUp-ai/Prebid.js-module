@@ -3,7 +3,7 @@ import sinon from 'sinon';
 import * as ajaxLib from 'src/ajax.js';
 import { config } from 'src/config.js';
 import { server } from 'test/mocks/xhr.js';
-import { spec } from '../../../modules/stackupBidAdapter.ts';
+import { spec } from '../../../modules/stackupaiBidAdapter.ts';
 
 const DEFAULT_ENDPOINT = 'https://adserver.stackup-ai.com/openrtb2/auction';
 const CUSTOM_ENDPOINT = 'https://pbs.example.com/openrtb2/auction';
@@ -14,7 +14,7 @@ const bannerBidRequestBase = {
   adUnitCode: 'banner-ad-unit-code',
   auctionId: 'auction-id',
   bidId: 'banner-bid-id',
-  bidder: 'stackup',
+  bidder: 'stackupai',
   bidderRequestId: 'bidder-request-id',
   mediaTypes: { banner: { sizes: [[300, 250]] } },
   params: { tag: 'test-tag' },
@@ -24,7 +24,7 @@ const videoBidRequestBase = {
   adUnitCode: 'video-ad-unit-code',
   auctionId: 'auction-id',
   bidId: 'video-bid-id',
-  bidder: 'stackup',
+  bidder: 'stackupai',
   bidderRequestId: 'bidder-request-id',
   mediaTypes: {
     video: {
@@ -42,7 +42,7 @@ const bannerServerResponseBase = {
     id: 'response-id',
     cur: 'USD',
     seatbid: [{
-      seat: 'stackup',
+      seat: 'stackupai',
       bid: [{
         id: 'banner-bid',
         impid: 'banner-bid-id',
@@ -65,7 +65,7 @@ const videoServerResponseBase = {
     id: 'response-id',
     cur: 'USD',
     seatbid: [{
-      seat: 'stackup',
+      seat: 'stackupai',
       bid: [{
         id: 'video-bid',
         impid: 'video-bid-id',
@@ -82,9 +82,9 @@ const videoServerResponseBase = {
 };
 
 // What Prebid passes to onTimeout: the bid request with params replaced by an
-// array of the ad unit's stackup params (adapterManager.callTimedOutBidders).
+// array of the ad unit's stackupai params (adapterManager.callTimedOutBidders).
 function timedOutBid(bidId, params = [{ tag: 'test-tag' }], timeout = 1000) {
-  return { bidder: 'stackup', bidId, adUnitCode: 'ad-unit-code', auctionId: 'auction-id', params, timeout };
+  return { bidder: 'stackupai', bidId, adUnitCode: 'ad-unit-code', auctionId: 'auction-id', params, timeout };
 }
 
 function bidderRequestFor(bidRequests) {
@@ -111,7 +111,7 @@ describe('Stackup bid adapter', () => {
 
   describe('spec', () => {
     it('has the required properties', () => {
-      expect(spec).to.have.property('code', 'stackup');
+      expect(spec).to.have.property('code', 'stackupai');
       expect(spec.supportedMediaTypes).to.have.members(['banner', 'video']);
       expect(spec.isBidRequestValid).to.be.a('function');
       expect(spec.buildRequests).to.be.a('function');
@@ -176,25 +176,25 @@ describe('Stackup bid adapter', () => {
       expect(request.data.site.page).to.equal('https://example.com');
     });
 
-    it('uses the endpoint from stackup config', () => {
-      config.setConfig({ stackup: { endpoint: CUSTOM_ENDPOINT } });
+    it('uses the endpoint from stackupai config', () => {
+      config.setConfig({ stackupai: { endpoint: CUSTOM_ENDPOINT } });
       const request = spec.buildRequests([bannerBidRequest], bidderRequestFor([bannerBidRequest]));
 
       expect(request.url).to.equal(CUSTOM_ENDPOINT);
     });
 
     it('ignores an endpoint that is not an http(s) URL', () => {
-      config.setConfig({ stackup: { endpoint: 'javascript:alert(1)' } });
+      config.setConfig({ stackupai: { endpoint: 'javascript:alert(1)' } });
       const request = spec.buildRequests([bannerBidRequest], bidderRequestFor([bannerBidRequest]));
 
       expect(request.url).to.equal(DEFAULT_ENDPOINT);
     });
 
-    it('puts the tag at imp.ext.prebid.bidder.stackup (singular "bidder")', () => {
+    it('puts the tag at imp.ext.prebid.bidder.stackupai (singular "bidder")', () => {
       const request = spec.buildRequests([bannerBidRequest], bidderRequestFor([bannerBidRequest]));
       const imp = request.data.imp[0];
 
-      expect(imp.ext.prebid.bidder.stackup).to.deep.equal({ tag: 'test-tag' });
+      expect(imp.ext.prebid.bidder.stackupai).to.deep.equal({ tag: 'test-tag' });
       expect(imp.ext.prebid).to.not.have.property('bidders');
     });
 
@@ -226,7 +226,7 @@ describe('Stackup bid adapter', () => {
       expect(request.data.imp).to.have.length(2);
       expect(request.data.imp[0].id).to.equal('banner-bid-id');
       expect(request.data.imp[1].id).to.equal('video-bid-id');
-      expect(request.data.imp[1].ext.prebid.bidder.stackup.tag).to.equal('other-tag');
+      expect(request.data.imp[1].ext.prebid.bidder.stackupai.tag).to.equal('other-tag');
     });
   });
 
@@ -390,21 +390,21 @@ describe('Stackup bid adapter', () => {
 
     // Prebid calls onTimeout inside runWithBidder, so setBidderConfig applies.
     it('reports to the timeout URL of an endpoint set with setBidderConfig', () => {
-      config.setBidderConfig({ bidders: ['stackup'], config: { stackup: { endpoint: CUSTOM_ENDPOINT } } });
-      config.runWithBidder('stackup', () => spec.onTimeout([timedOutBid('bid-1')]));
+      config.setBidderConfig({ bidders: ['stackupai'], config: { stackupai: { endpoint: CUSTOM_ENDPOINT } } });
+      config.runWithBidder('stackupai', () => spec.onTimeout([timedOutBid('bid-1')]));
 
       expect(sendBeacon.firstCall.args[0]).to.equal(CUSTOM_TIMEOUT_URL);
     });
 
     it('keeps the endpoint port in the timeout URL', () => {
-      config.setConfig({ stackup: { endpoint: 'http://pbs.example.com:8000/openrtb2/auction' } });
+      config.setConfig({ stackupai: { endpoint: 'http://pbs.example.com:8000/openrtb2/auction' } });
       spec.onTimeout([timedOutBid('bid-1')]);
 
       expect(sendBeacon.firstCall.args[0]).to.equal('http://events.pbs.example.com:8000/e/timeout');
     });
 
     it('reports to the default timeout URL when the endpoint override is invalid', () => {
-      config.setConfig({ stackup: { endpoint: 'javascript:alert(1)' } });
+      config.setConfig({ stackupai: { endpoint: 'javascript:alert(1)' } });
       spec.onTimeout([timedOutBid('bid-1')]);
 
       expect(sendBeacon.firstCall.args[0]).to.equal(DEFAULT_TIMEOUT_URL);
