@@ -14,6 +14,7 @@ import {
   ortb2GuardFactory,
 } from "libraries/objectGuard/ortbGuard.js";
 import * as utils from "src/utils.js";
+import { config } from "src/config.js";
 
 // ─── fixtures ───────────────────────────────────────────────────────────────
 
@@ -1459,6 +1460,49 @@ describe("StackUp RTD Provider", function () {
       expect(g2.site.content.ext).to.not.have.property("otherVendor");
       expect(g2.site.content.data[0].segment[0]).to.not.have.property("name");
       expect(g2.user.data[0].ext).to.not.have.property("addedBy");
+    });
+  });
+
+  describe("getBidRequestData – no avoidable waiting", function () {
+    it("should release a consent-denied auction at once, even while the fetch is in flight", async function () {
+      subModuleObj.init(VALID_CONFIG, {});
+      const req = { auctionId: "a-denied", ortb2Fragments: { global: {} } };
+      const cb = sinon.spy();
+      subModuleObj.getBidRequestData(req, cb, VALID_CONFIG, { coppa: true }, 1000);
+      expect(cb.calledOnce).to.be.true;
+      expect(getAuctionEnrichment("a-denied").status).to.equal("noConsent");
+
+      respond200(VALID_API_RESPONSE);
+      await flushMicrotasks();
+      expect(cb.calledOnce).to.be.true;
+      expect(req.ortb2Fragments.global).to.eql({});
+    });
+
+    describe("when the publisher turns off ajax timeouts", function () {
+      let clock;
+      beforeEach(function () {
+        config.setConfig({ disableAjaxTimeout: true });
+        clock = sinon.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+      });
+      afterEach(function () {
+        clock.restore();
+        config.resetConfig();
+      });
+
+      it("should still give up on a fetch that never settles", async function () {
+        subModuleObj.init(VALID_CONFIG, {});
+        clock.tick(3000);
+        await flushMicrotasks();
+
+        const cb = sinon.spy();
+        subModuleObj.getBidRequestData(
+          { auctionId: "a-after-hang", ortb2Fragments: { global: {} } },
+          cb,
+          VALID_CONFIG
+        );
+        expect(cb.calledOnce).to.be.true;
+        expect(getAuctionEnrichment("a-after-hang").status).to.equal("unavailable");
+      });
     });
   });
 

@@ -37,6 +37,8 @@ const REQUIRED_PURPOSES = [1, 4];
 const MODULE_NAME = "stackupRtd";
 const MODULE_TYPE = "realTimeData";
 const DEFAULT_TIMEOUT = 300;
+// Upper bound for the shared enrichment fetch, independent of any auction.
+const FETCH_TIMEOUT = 3000;
 const DEFAULT_API_URL = "https://api.stackup-ai.com/v1/enrich-ortb-rtd";
 const CACHE_KEY_PREFIX = "stackup:enrich:v1:";
 const CACHE_SCHEMA_VERSION = 2;
@@ -265,10 +267,12 @@ function fetchEnrichment(
 
   // The fetch is shared by every auction on the page, so an auction that stops
   // waiting for it must not cancel it: letting it land (and get cached) is what
-  // enriches the auctions that follow. prebidFetch bounds it with its own
-  // default request timeout.
+  // enriches the auctions that follow. It is bounded here rather than by
+  // prebidFetch's own timeout, which publishers can turn off (disableAjaxTimeout).
+  const ctl = new AbortController();
+  const fetchTimer = setTimeout(() => ctl.abort(), FETCH_TIMEOUT);
   const url = buildEnrichmentUrl(articleId, params);
-  return prebidFetch(url)
+  return prebidFetch(url, { signal: ctl.signal })
     .then((response) => {
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
       return response.text();
@@ -295,7 +299,8 @@ function fetchEnrichment(
       };
       setCachedEnrichment(articleId, snapshot);
       return snapshot;
-    });
+    })
+    .finally(() => clearTimeout(fetchTimer));
 }
 
 function isValidEnrichment(data: any): data is RawEnrichmentResponse {
@@ -514,39 +519,23 @@ function getBidRequestData(
     reqBidsConfigObj.auctionId || generateUUID());
 
   let callbackFired = false;
+  let timeoutId: ReturnType<typeof setTimeout> | undefined;
   const release = (
     status: AuctionEnrichmentStatus,
     enrichment: EnrichmentSnapshot | null = null
   ) => {
     if (callbackFired) return; // CRITICAL — never call back twice
     callbackFired = true;
+    clearTimeout(timeoutId);
+    // A released auction no longer needs the fetch; do not keep it alive until then.
+    const pending = state.pendingCallbacks.indexOf(onReady);
+    if (pending >= 0) state.pendingCallbacks.splice(pending, 1);
     recordAuctionEnrichment({ auctionId, status, enrichment });
     callback();
   };
 
-  // Safety net — always release the auction, no matter what. Only this auction
-  // stops waiting; the shared fetch keeps going for the auctions that follow.
-  const timeoutId = setTimeout(() => {
-    if (state.state === "fetching") {
-      logWarn(
-        "[stackupRtd] enrichment fetch exceeded " +
-          effectiveTimeout +
-          "ms, releasing auction clean"
-      );
-    }
-    release("timedOut");
-  }, effectiveTimeout);
-
   const onReady = () => {
-    clearTimeout(timeoutId);
-    // This auction may already have been released by the safety net; it is
-    // under way by now, so its ortb2 must not change underneath it.
     if (callbackFired) return;
-    if (!hasRequiredConsent(userConsent)) {
-      logInfo("[stackupRtd] consent not granted, auction proceeds clean");
-      release("noConsent");
-      return;
-    }
     if (!state.enrichment) {
       release("unavailable");
       return;
@@ -561,15 +550,35 @@ function getBidRequestData(
     release("enriched", state.enrichment);
   };
 
+  // This auction's consent is already known: when it rules enrichment out, do
+  // not hold the auction for a result that would be discarded.
+  if (!hasRequiredConsent(userConsent)) {
+    logInfo("[stackupRtd] consent not granted, auction proceeds clean");
+    release("noConsent");
+    return;
+  }
+
   if (state.state === "ready") {
     onReady();
-  } else if (state.state === "fetching") {
-    state.pendingCallbacks.push(onReady);
-  } else {
-    // error, idle — give up cleanly
-    clearTimeout(timeoutId);
-    release("unavailable");
+    return;
   }
+  if (state.state !== "fetching") {
+    // error, idle — give up cleanly
+    release("unavailable");
+    return;
+  }
+
+  state.pendingCallbacks.push(onReady);
+  // Safety net — always release the auction, no matter what. Only this auction
+  // stops waiting; the shared fetch keeps going for the auctions that follow.
+  timeoutId = setTimeout(() => {
+    logWarn(
+      "[stackupRtd] enrichment fetch exceeded " +
+        effectiveTimeout +
+        "ms, releasing auction clean"
+    );
+    release("timedOut");
+  }, effectiveTimeout);
 }
 
 function mergeIntoOrtb2(
