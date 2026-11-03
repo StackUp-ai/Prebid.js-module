@@ -45,10 +45,10 @@ pbjs.setConfig({
     dataProviders: [
       {
         name: "stackupRtd",
-        waitForIt: true, // keep in sync with auctionDelay
+        waitForIt: true, // required for the auction to wait for enrichment
         params: {
           pubId: "YOUR-PUB-ID", // required — issued by Stack Up
-          timeout: 300, // optional — enrichment budget in ms (default: 300)
+          timeout: 300, // optional — ms to hold the auction (default: 300); keep below auctionDelay
           articleIdMode: "path", // optional — 'path' (default) or 'explicit'
           articleId: "", // required when articleIdMode is 'explicit'
           apiUrl: "https://api.stackup-ai.com/v1/enrich-ortb-rtd", // optional — override API endpoint
@@ -69,10 +69,10 @@ pbjs.setConfig({
 | Name                      |    Scope    |  Type   | Description                                                                                                                 |                      Default                      |
 | :------------------------ | :---------: | :-----: | :-------------------------------------------------------------------------------------------------------------------------- | :-----------------------------------------------: |
 | `name`                    |  required   | String  | Must be `'stackupRtd'`                                                                                                      |                         —                         |
-| `waitForIt`               | recommended | Boolean | Set `true` when an `auctionDelay` is defined                                                                                |                      `false`                      |
+| `waitForIt`               | recommended | Boolean | Required for the auction to wait for enrichment (with an `auctionDelay`). Without it, only auctions that start once the enrichment has loaded or is cached are enriched |                      `false`                      |
 | `params`                  |  required   | Object  | Module configuration                                                                                                        |                         —                         |
 | `params.pubId`            |  required   | String  | Publisher ID issued by Stack Up                                                                                             |                         —                         |
-| `params.timeout`          |  optional   | Integer | Max ms to wait for the enrichment API before releasing the auction                                                          |                       `300`                       |
+| `params.timeout`          |  optional   | Integer | Max ms to hold the auction for the enrichment. Applies only with `waitForIt` and an `auctionDelay`, and is capped at `auctionDelay` minus 5 ms |                       `300`                       |
 | `params.articleIdMode`    |  optional   | String  | How the article ID is determined. `'path'` derives it from the page URL path; `'explicit'` uses `params.articleId` directly |                     `'path'`                      |
 | `params.articleId`        | optional\*  | String  | Article identifier — required when `articleIdMode` is `'explicit'`. Max 512 characters                                      |                         —                         |
 | `params.apiUrl`           |  optional   | String  | Override the Stack Up enrichment endpoint                                                                                   | `'https://api.stackup-ai.com/v1/enrich-ortb-rtd'` |
@@ -82,13 +82,21 @@ pbjs.setConfig({
 | `params.debug`            |  optional   | Boolean | Enable verbose `[stackupRtd]` console logging                                                                               |                      `false`                      |
 | `params.debugDomain`      |  optional   | String  | Override the domain sent to the API when `debug: true`                                                                      |                    page domain                    |
 
+## Timing
+
+The module holds an auction only while Prebid waits for it: `waitForIt: true` and an `auctionDelay` above zero. It then releases the auction as soon as the enrichment is merged, or after `params.timeout` ms (capped at `auctionDelay` minus 5 ms, so it always releases before Prebid's own timer). An auction that stops waiting doesn't cancel the request: when the response arrives it is cached and used by the auctions that follow. The request itself gives up after 3 seconds, and isn't retried for the rest of the page view.
+
+Without `waitForIt`, the module never holds an auction: it enriches the auction if the enrichment is already loaded or cached, and otherwise lets it go as is. This also applies when another provider sets `waitForIt` and Prebid delays the auction for it: enrichment that arrives during that delay is not added.
+
 ## Consent
 
-The module checks consent when it initializes and again for every auction. Initialization usually happens before the CMP has been queried, so the per-auction check is the one that decides whether enrichment is added to the bid request:
+The module checks consent for every auction, and adds no enrichment to an auction whose consent doesn't allow it:
 
 - **COPPA**: if `coppa: true` is set, the module adds no enrichment.
 - **GDPR**: when GDPR applies, the module requires consent for **Purpose 1** (Store/access information on a device) and **Purpose 4** (Select personalised content); legitimate interest is not accepted for either. If either purpose is missing, or if `vendorData` is absent (e.g. CMP timeout), the module adds no enrichment.
 - **USP / CCPA / GPP**: not enforced — the Stack Up API receives only a URL path and domain, no user identifiers, so US sale-of-data frameworks do not apply.
+
+The enrichment request is sent when the module initializes, at `setConfig` time. When consent management is configured and the CMP hasn't answered by then, the module waits for that answer and only sends the request if it allows enrichment (if the CMP lookup fails, the first auction with consent sends it). Prebid holds auctions until the CMP answers anyway, so this doesn't delay them. If consent management is set up after this module initializes (for example in a later `setConfig` call), the request is sent at initialization without waiting.
 
 ## Article ID Resolution
 
@@ -118,7 +126,7 @@ stackup:enrich:v1:path_<hash>
 ```
 
 With `params.cache.storage: 'memory'`, entries are kept in runtime memory only (the 20 most recent articles) and are cleared on full page reload.
-Cache entries expire after `params.cache.ttlSeconds` (default 1 hour). Setting `params.cache.enabled: false` disables both reads and writes.
+Cache entries expire after `params.cache.ttlSeconds` (default 1 hour). An entry that doesn't pass the same validation as an API response is ignored and the article is fetched again. Setting `params.cache.enabled: false` disables both reads and writes.
 
 The hash is derived from article context (articleId plus publisher/request context), preventing cross-publisher/context cache reuse in a shared browser session.
 
