@@ -1378,6 +1378,26 @@ describe("StackUp RTD Provider", function () {
       expect(server.requests.length).to.equal(1);
     });
 
+    it("should key debug-mode entries by the domain it asks the API about", async function () {
+      const cachedUnder = async (params) => {
+        _resetStateForTesting();
+        subModuleObj.init({ ...VALID_CONFIG, params: { ...VALID_CONFIG.params, ...params } }, {});
+        const url = server.requests[server.requests.length - 1].url;
+        respond200(VALID_API_RESPONSE);
+        await flushMicrotasks();
+        return { url, key: storageSetStub.lastCall.args[0] };
+      };
+      const plain = await cachedUnder({});
+      const debug = await cachedUnder({ debug: true });
+      const debugDomain = await cachedUnder({ debug: true, debugDomain: "other.example" });
+
+      // without debugDomain, debug mode asks about the page's own domain
+      expect(debug.url).to.equal(plain.url);
+      expect(debug.key).to.equal(plain.key);
+      expect(debugDomain.url).to.include("domain=other.example");
+      expect(debugDomain.key).to.not.equal(plain.key);
+    });
+
     it("should make an XHR request when cached entry is expired (default TTL 1 h)", function () {
       storageGetStub.returns(
         JSON.stringify({ v: 2, t: Date.now() - 7200 * 1000, d: cachedSnapshot })

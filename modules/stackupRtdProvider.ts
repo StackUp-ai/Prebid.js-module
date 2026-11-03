@@ -283,18 +283,7 @@ function buildEnrichmentUrl(
   params: StackupRtdParams
 ): string {
   const base = params.apiUrl ?? DEFAULT_API_URL;
-  // Use Prebid's referer detection so domain is correct inside iframes.
-  const domain = getRefererInfo().domain;
-
-  if (params.debug) {
-    const debugDomain = params.debugDomain ?? domain;
-    return `${base}?pubId=${encodeURIComponent(
-      params.pubId
-    )}&articleId=${encodeURIComponent(articleId)}&domain=${encodeURIComponent(
-      debugDomain
-    )}`;
-  }
-
+  const domain = requestDomain(params);
   return `${base}?pubId=${encodeURIComponent(
     params.pubId
   )}&articleId=${encodeURIComponent(articleId)}&domain=${encodeURIComponent(
@@ -411,9 +400,16 @@ function isValidDataBlock(block: any, allowedSegtaxes: Set<number>): boolean {
   return true;
 }
 
+// The domain the API is asked about, which cache entries are keyed by too.
+function requestDomain(params?: StackupRtdParams): string {
+  // Use Prebid's referer detection so domain is correct inside iframes.
+  const domain = getRefererInfo().domain ?? "";
+  return params?.debug ? params.debugDomain ?? domain : domain;
+}
+
 function cacheKey(articleId: string, params?: StackupRtdParams): string {
   const p = params ?? state.config?.params;
-  const domain = (p?.debug ? p?.debugDomain : getRefererInfo().domain) ?? "";
+  const domain = requestDomain(p);
   const base = p?.apiUrl ?? DEFAULT_API_URL;
   const keyInput = `${articleId}|pub:${
     p?.pubId ?? ""
