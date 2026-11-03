@@ -84,7 +84,7 @@ pbjs.setConfig({
 
 ## Timing
 
-The module holds an auction only while Prebid waits for it: `waitForIt: true` and an `auctionDelay` above zero. It then releases the auction as soon as the enrichment is merged, or after `params.timeout` ms (capped at `auctionDelay` minus 5 ms, so it always releases before Prebid's own timer). An auction that stops waiting doesn't cancel the request: when the response arrives it is cached and used by the auctions that follow. The request itself gives up after 3 seconds, and isn't retried for the rest of the page view.
+The module holds an auction only while Prebid waits for it: `waitForIt: true` and an `auctionDelay` above zero. It then releases the auction as soon as the enrichment is merged, or after `params.timeout` ms (capped at `auctionDelay` minus 5 ms, so it always releases before Prebid's own timer). An auction that stops waiting doesn't cancel the request: when the response arrives it is cached and used by the auctions that follow. The request itself gives up after 3 seconds, and isn't retried while the page stays on that article.
 
 Without `waitForIt`, the module never holds an auction: it enriches the auction if the enrichment is already loaded or cached, and otherwise lets it go as is. This also applies when another provider sets `waitForIt` and Prebid delays the auction for it: enrichment that arrives during that delay is not added.
 
@@ -96,7 +96,7 @@ The module checks consent for every auction, and adds no enrichment to an auctio
 - **GDPR**: when GDPR applies, the module requires consent for **Purpose 1** (Store/access information on a device) and **Purpose 4** (Select personalised content); legitimate interest is not accepted for either. If either purpose is missing, or if `vendorData` is absent (e.g. CMP timeout), the module adds no enrichment.
 - **USP / CCPA / GPP**: not enforced — the Stack Up API receives only a URL path and domain, no user identifiers, so US sale-of-data frameworks do not apply.
 
-The enrichment request is sent when the module initializes, at `setConfig` time. When consent management is configured and the CMP hasn't answered by then, the module waits for that answer and only sends the request if it allows enrichment (if the CMP lookup fails, the first auction with consent sends it). Prebid holds auctions until the CMP answers anyway, so this doesn't delay them. If consent management is set up after this module initializes (for example in a later `setConfig` call), the request is sent at initialization without waiting.
+The enrichment request is sent when the module initializes, at `setConfig` time, so that it runs alongside the CMP lookup instead of after it, and the first auction doesn't wait for one and then the other. It is therefore usually sent before the CMP has answered. It carries no user identifiers, only a URL path and domain; consent decides whether the result is added to an auction. With Prebid's TCF enforcement (`tcfControl`), the module can't read or write its sessionStorage cache until the CMP has answered and allows it. If consent is already denied when the module initializes, no request is sent.
 
 ## Article ID Resolution
 

@@ -1,5 +1,5 @@
 import { fetch as prebidFetch } from "../src/ajax.ts";
-import { AllConsentData, gdprDataHandler } from "../src/consentHandler.ts";
+import { AllConsentData } from "../src/consentHandler.ts";
 import { submodule } from "../src/hook.js";
 import { StartAuctionOptions } from "../src/prebid.ts";
 import {
@@ -61,7 +61,6 @@ export const storage = getStorageManager({
 type RtdState =
   | "idle"
   | "initializing"
-  | "awaitingConsent"
   | "fetching"
   | "ready"
   | "error";
@@ -204,28 +203,6 @@ function init(
     logWarn("[stackupRtd] no article ID resolved, module inert");
     state.state = "error";
     return false;
-  }
-
-  // Consent management queries the CMP asynchronously, so at setConfig time
-  // its answer is usually not in yet: hold the request until it is, rather
-  // than call the API before knowing whether we may. Auctions wait for that
-  // answer too, so this costs them no time.
-  if (gdprDataHandler.enabled && !gdprDataHandler.ready) {
-    state.articleId = articleId;
-    state.state = "awaitingConsent";
-    gdprDataHandler.promise.then(
-      (gdpr) => {
-        if (state.state !== "awaitingConsent" || state.articleId !== articleId) {
-          return;
-        }
-        if (hasRequiredConsent({ ...userConsent, gdpr })) {
-          loadEnrichment(articleId, params);
-        }
-      },
-      // No answer from the CMP: the first auction with consent loads it instead.
-      () => {}
-    );
-    return true;
   }
 
   // Kick off background fetch — do not await
@@ -475,8 +452,9 @@ function setCachedEnrichment(
   }
 }
 
-// Checked at init (or once the CMP has answered, when it had not by then) and
-// again for every auction.
+// Checked both at init and again for every auction: init runs at setConfig
+// time, and the CMP lookup that consent management starts then is asynchronous,
+// so the consent passed to init is usually still empty.
 function hasRequiredConsent(userConsent: AllConsentData): boolean {
   // COPPA: block all processing in child-directed contexts.
   if (userConsent?.coppa === true) return false;
@@ -638,9 +616,7 @@ function getBidRequestData(
     release("unavailable");
     return;
   }
-  // Switch to the article when it is a new one, or load it now if it was held
-  // until consent was known.
-  if (articleId !== state.articleId || state.state === "awaitingConsent") {
+  if (articleId !== state.articleId) {
     loadEnrichment(articleId, params);
   }
 
