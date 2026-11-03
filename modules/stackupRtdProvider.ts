@@ -592,6 +592,12 @@ function getBidRequestData(
   const auctionId = (reqBidsConfigObj.auctionId =
     reqBidsConfigObj.auctionId || generateUUID());
 
+  // A single-page app changes the page without reloading Prebid: find the
+  // article this auction is for. Nothing to find if init never succeeded.
+  const params = config.params ?? state.config?.params;
+  const articleId =
+    state.articleId === null || !params ? null : resolveArticleId(params).id;
+
   let callbackFired = false;
   let timeoutId: ReturnType<typeof setTimeout> | undefined;
   const release = (
@@ -632,21 +638,14 @@ function getBidRequestData(
     return;
   }
 
-  // Never initialized successfully: nothing to switch from or fetch with.
-  if (state.articleId === null) {
-    release("unavailable");
-    return;
-  }
-  // A single-page app changes the page without reloading Prebid: find the
-  // article this auction is for, and switch to it when it is a new one.
-  const articleId = resolveArticleId(config.params ?? state.config.params).id;
   if (!articleId) {
     release("unavailable");
     return;
   }
-  // ...or load it now if it was held until consent was known.
+  // Switch to the article when it is a new one, or load it now if it was held
+  // until consent was known.
   if (articleId !== state.articleId || state.state === "awaitingConsent") {
-    loadEnrichment(articleId, config.params ?? state.config.params);
+    loadEnrichment(articleId, params);
   }
 
   if (state.state === "ready") {
