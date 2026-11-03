@@ -102,9 +102,11 @@ The module normalises the current page URL path using Prebid's built-in referer 
 
 The resulting path is sent to the API and is also used as the `sessionStorage` cache key (via a fast hash) so cache hits are consistent across AMP and canonical URLs for the same article.
 
+The path is resolved again for every auction, so single-page apps that change the URL without reloading Prebid get the enrichment for the article currently shown. On a change the module drops the previous article (its in-flight request is cancelled), serves the new one from cache when available, and otherwise fetches it. If you set `pageUrl` through `setConfig`, update it on each navigation.
+
 ### `articleIdMode: 'explicit'`
 
-Pass a stable, opaque article identifier directly in `params.articleId`. Use this when you have a CMS-issued slug or numeric ID that is more stable than the URL.
+Pass a stable, opaque article identifier directly in `params.articleId`. Use this when you have a CMS-issued slug or numeric ID that is more stable than the URL. The identifier is fixed by configuration, so single-page apps should use `path` mode.
 
 ## Caching
 
@@ -115,7 +117,7 @@ With `params.cache.storage: 'session'`, it writes to `sessionStorage` under the 
 stackup:enrich:v1:path_<hash>
 ```
 
-With `params.cache.storage: 'memory'`, entries are kept in runtime memory only and are cleared on full page reload.
+With `params.cache.storage: 'memory'`, entries are kept in runtime memory only (the 20 most recent articles) and are cleared on full page reload.
 Cache entries expire after `params.cache.ttlSeconds` (default 1 hour). Setting `params.cache.enabled: false` disables both reads and writes.
 
 The hash is derived from article context (articleId plus publisher/request context), preventing cross-publisher/context cache reuse in a shared browser session.

@@ -42,6 +42,9 @@ const FETCH_TIMEOUT = 3000;
 // How much earlier than core's auctionDelay timer we release a waiting auction.
 // Both timers would otherwise expire together and core's, scheduled first, wins.
 const RELEASE_MARGIN = 5;
+// In-memory cache entries kept at once: a long single-page-app session can visit
+// many articles, and without a cap the map would grow for the page's lifetime.
+const MAX_MEMORY_CACHE_ENTRIES = 20;
 const DEFAULT_API_URL = "https://api.stackup-ai.com/v1/enrich-ortb-rtd";
 const CACHE_KEY_PREFIX = "stackup:enrich:v1:";
 const CACHE_SCHEMA_VERSION = 2;
@@ -67,6 +70,7 @@ interface RtdInternalState {
   articleId: string | null;
   enrichment: EnrichmentSnapshot | null;
   fetchPromise: Promise<EnrichmentSnapshot> | null;
+  fetchAbortController: AbortController | null;
   pendingCallbacks: Array<() => void>;
   config: RTDProviderConfig<"stackupRtd">;
 }
@@ -76,6 +80,7 @@ const state: RtdInternalState = {
   articleId: null,
   enrichment: null,
   fetchPromise: null,
+  fetchAbortController: null,
   pendingCallbacks: [],
   config: null as any,
 };
@@ -186,37 +191,66 @@ function init(
     return false;
   }
 
+  let articleId: string | null;
   try {
-    const { id } = resolveArticleId(params);
-    state.articleId = id;
+    articleId = resolveArticleId(params).id;
   } catch (e) {
     logError("[stackupRtd] article id resolution failed", e);
     state.state = "error";
     return false;
   }
-
-  // Kick off background fetch — do not await
-  if (!state.articleId) {
+  if (!articleId) {
     logWarn("[stackupRtd] no article ID resolved, module inert");
     state.state = "error";
     return false;
   }
-  state.fetchPromise = fetchEnrichment(state.articleId, params);
-  state.state = "fetching";
 
+  // Kick off background fetch — do not await
+  loadEnrichment(articleId, params);
+  return true;
+}
+
+// Makes `articleId` the article the module enriches auctions with. Called at
+// init, and again whenever a single-page app has moved on to another article:
+// whatever was loaded or loading for the previous one is dropped.
+function loadEnrichment(articleId: string, params: StackupRtdParams): void {
+  // The previous page is gone: stop its fetch, and let auctions still waiting
+  // for it go now (they find no enrichment for their article).
+  state.fetchAbortController?.abort();
+  state.fetchAbortController = null;
+  state.fetchPromise = null;
+  state.articleId = articleId;
+  state.enrichment = null;
+  state.state = "fetching";
+  drainPendingCallbacks();
+
+  const cached = getCachedEnrichment(articleId);
+  if (cached) {
+    // Synchronous, so an auction for an article seen earlier is enriched at
+    // once, whether or not core waits for us.
+    state.enrichment = { ...cached, source: "cache" };
+    state.state = "ready";
+    return;
+  }
+
+  const ctl = new AbortController();
+  state.fetchAbortController = ctl;
+  // Results of a fetch that was superseded by a later navigation are ignored.
+  const isCurrent = () => state.fetchAbortController === ctl;
+  state.fetchPromise = fetchEnrichment(articleId, params, ctl);
   state.fetchPromise
     .then((data) => {
+      if (!isCurrent()) return;
       state.enrichment = data;
       state.state = "ready";
       drainPendingCallbacks();
     })
     .catch((err) => {
+      if (!isCurrent()) return;
       logError("[stackupRtd] fetch failed", err);
       state.state = "error";
       drainPendingCallbacks();
     });
-
-  return true;
 }
 
 // Builds the enrichment API request URL from the resolved articleId and publisher params.
@@ -260,19 +294,13 @@ function drainPendingCallbacks(): void {
 
 function fetchEnrichment(
   articleId: string,
-  params: StackupRtdParams
+  params: StackupRtdParams,
+  ctl: AbortController
 ): Promise<EnrichmentSnapshot> {
-  // Check cache first
-  const cached = getCachedEnrichment(articleId);
-  if (cached) {
-    return Promise.resolve({ ...cached, source: "cache" });
-  }
-
   // The fetch is shared by every auction on the page, so an auction that stops
   // waiting for it must not cancel it: letting it land (and get cached) is what
   // enriches the auctions that follow. It is bounded here rather than by
   // prebidFetch's own timeout, which publishers can turn off (disableAjaxTimeout).
-  const ctl = new AbortController();
   const fetchTimer = setTimeout(() => ctl.abort(), FETCH_TIMEOUT);
   const url = buildEnrichmentUrl(articleId, params);
   return prebidFetch(url, { signal: ctl.signal })
@@ -403,6 +431,12 @@ function setCachedEnrichment(
     const payload = { v: CACHE_SCHEMA_VERSION, t: Date.now(), d: data };
     if (cache.storage === "memory") {
       inMemoryEnrichmentCache.set(key, payload);
+      // Map iteration follows insertion order, so the first key is the oldest
+      if (inMemoryEnrichmentCache.size > MAX_MEMORY_CACHE_ENTRIES) {
+        inMemoryEnrichmentCache.delete(
+          inMemoryEnrichmentCache.keys().next().value
+        );
+      }
       return;
     }
     storage.setDataInSessionStorage(key, JSON.stringify(payload));
@@ -543,7 +577,7 @@ function getBidRequestData(
 
   const onReady = () => {
     if (callbackFired) return;
-    if (!state.enrichment) {
+    if (!state.enrichment || state.enrichment.articleId !== articleId) {
       release("unavailable");
       return;
     }
@@ -563,6 +597,22 @@ function getBidRequestData(
     logInfo("[stackupRtd] consent not granted, auction proceeds clean");
     release("noConsent");
     return;
+  }
+
+  // Never initialized successfully: nothing to switch from or fetch with.
+  if (state.articleId === null) {
+    release("unavailable");
+    return;
+  }
+  // A single-page app changes the page without reloading Prebid: find the
+  // article this auction is for, and switch to it when it is a new one.
+  const articleId = resolveArticleId(config.params ?? state.config.params).id;
+  if (!articleId) {
+    release("unavailable");
+    return;
+  }
+  if (articleId !== state.articleId) {
+    loadEnrichment(articleId, config.params ?? state.config.params);
   }
 
   if (state.state === "ready") {
@@ -779,6 +829,8 @@ export function _resetStateForTesting(): void {
   state.articleId = null;
   state.enrichment = null;
   state.fetchPromise = null;
+  state.fetchAbortController?.abort();
+  state.fetchAbortController = null;
   state.pendingCallbacks.length = 0;
   resetAuctionEnrichments();
   inMemoryEnrichmentCache.clear();

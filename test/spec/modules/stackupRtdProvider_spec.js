@@ -15,6 +15,7 @@ import {
 } from "libraries/objectGuard/ortbGuard.js";
 import * as utils from "src/utils.js";
 import { config } from "src/config.js";
+import * as refererDetection from "src/refererDetection.js";
 
 // ─── fixtures ───────────────────────────────────────────────────────────────
 
@@ -1530,6 +1531,139 @@ describe("StackUp RTD Provider", function () {
       );
       expect(global.user).to.equal(publisherUser);
       expect(publisherUser).to.eql({ yob: 1990 });
+    });
+  });
+
+  describe("single-page app navigation (articleIdMode: path)", function () {
+    let refererStub;
+    let page;
+    const PATH_CONFIG = {
+      ...VALID_CONFIG,
+      params: { ...VALID_CONFIG.params, articleIdMode: "path", articleId: undefined },
+    };
+    const navigate = (path) => {
+      page = `https://example.com${path}`;
+    };
+    const articleResponse = (title) => {
+      const body = JSON.parse(JSON.stringify(VALID_API_RESPONSE));
+      body.site.content.title = title;
+      return body;
+    };
+    const respondTo = (request, body) =>
+      request.respond(200, { "Content-Type": "application/json" }, JSON.stringify(body));
+    const auction = (cfg = PATH_CONFIG, delay = AUCTION_DELAY) => {
+      const req = { ortb2Fragments: { global: {} } };
+      const cb = sinon.spy();
+      subModuleObj.getBidRequestData(req, cb, cfg, {}, delay);
+      return { req, cb };
+    };
+
+    beforeEach(function () {
+      navigate("/news/a");
+      refererStub = sinon
+        .stub(refererDetection, "getRefererInfo")
+        .callsFake(() => ({ page, domain: "example.com" }));
+    });
+
+    afterEach(function () {
+      refererStub.restore();
+    });
+
+    it("should load and merge the new article after the URL changes", async function () {
+      subModuleObj.init(PATH_CONFIG, {});
+      respondTo(server.requests[0], articleResponse("Article A"));
+      await flushMicrotasks();
+      expect(auction().req.ortb2Fragments.global.site.content.title).to.equal("Article A");
+
+      navigate("/news/b");
+      const { req, cb } = auction();
+      expect(server.requests).to.have.length(2);
+      expect(server.requests[1].url).to.contain("articleId=%2Fnews%2Fb");
+      expect(cb.called).to.be.false;
+
+      respondTo(server.requests[1], articleResponse("Article B"));
+      await flushMicrotasks();
+      expect(cb.calledOnce).to.be.true;
+      expect(req.ortb2Fragments.global.site.content.title).to.equal("Article B");
+      expect(getAuctionEnrichment(req.auctionId).enrichment.articleId).to.equal("/news/b");
+    });
+
+    it("should release auctions still waiting for the previous article at once", async function () {
+      subModuleObj.init(PATH_CONFIG, {});
+      const first = auction();
+      expect(first.cb.called).to.be.false;
+
+      navigate("/news/b");
+      auction();
+      expect(first.cb.calledOnce).to.be.true;
+      expect(getAuctionEnrichment(first.req.auctionId).status).to.equal("unavailable");
+      expect(first.req.ortb2Fragments.global).to.eql({});
+    });
+
+    it("should ignore the previous article's fetch when it settles late", async function () {
+      subModuleObj.init(PATH_CONFIG, {});
+      const staleRequest = server.requests[0];
+      navigate("/news/b");
+      auction();
+      respondTo(server.requests[1], articleResponse("Article B"));
+      await flushMicrotasks();
+      try {
+        respondTo(staleRequest, articleResponse("Article A"));
+      } catch (e) {
+        // the superseded request may already be aborted
+      }
+      await flushMicrotasks();
+
+      expect(auction().req.ortb2Fragments.global.site.content.title).to.equal("Article B");
+    });
+
+    it("should enrich at once, without a request, when returning to an article seen earlier", async function () {
+      const memoryConfig = {
+        ...PATH_CONFIG,
+        params: { ...PATH_CONFIG.params, cache: { storage: "memory" } },
+      };
+      subModuleObj.init(memoryConfig, {});
+      respondTo(server.requests[0], articleResponse("Article A"));
+      await flushMicrotasks();
+      navigate("/news/b");
+      auction(memoryConfig);
+      respondTo(server.requests[1], articleResponse("Article B"));
+      await flushMicrotasks();
+
+      navigate("/news/a");
+      // core is not waiting for us (no auctionDelay): only a synchronous cache hit can enrich it
+      const { req, cb } = auction(memoryConfig, 0);
+      expect(cb.calledOnce).to.be.true;
+      expect(server.requests).to.have.length(2);
+      expect(req.ortb2Fragments.global.site.content.title).to.equal("Article A");
+    });
+
+    it("should keep at most 20 articles in the in-memory cache", async function () {
+      const memoryConfig = {
+        ...PATH_CONFIG,
+        params: { ...PATH_CONFIG.params, cache: { storage: "memory" } },
+      };
+      navigate("/news/0");
+      subModuleObj.init(memoryConfig, {});
+      respondTo(server.requests[0], articleResponse("0"));
+      await flushMicrotasks();
+      for (let i = 1; i <= 20; i++) {
+        navigate(`/news/${i}`);
+        auction(memoryConfig);
+        respondTo(server.requests[i], articleResponse(String(i)));
+        await flushMicrotasks();
+      }
+      expect(server.requests).to.have.length(21);
+
+      navigate("/news/20");
+      auction(memoryConfig);
+      navigate("/news/1");
+      auction(memoryConfig);
+      expect(server.requests).to.have.length(21); // both still cached
+
+      navigate("/news/0");
+      auction(memoryConfig);
+      expect(server.requests).to.have.length(22); // the oldest was evicted
     });
   });
 
