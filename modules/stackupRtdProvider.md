@@ -18,7 +18,7 @@ The Stack Up RTD module enriches Prebid.js bid requests with contextual and audi
 
 During migration the module also accepts the legacy Stack Up content and audience values (`segtax: 502` and `segtax: 501`) from cached or not-yet-rebuilt enrichment responses.
 
-Every bidder that participates in the auction receives these segments in its `ortb2` object. No cookies, fingerprints, or user identifiers are transmitted to the Stack Up API — only a URL path and publisher domain.
+Every bidder that participates in the auction receives these segments in its `ortb2` object, unless Prebid's activity controls withhold them (see [Consent](#consent)). No cookies, fingerprints, or user identifiers are transmitted to the Stack Up API — only a URL path and publisher domain.
 
 Become a member of Stack Up in order to receive your `pubId`. Contact [support@stackup-ai.com](mailto:support@stackup-ai.com) for more details.
 
@@ -81,7 +81,7 @@ pbjs.setConfig({
 | `params.cache.enabled`    |  optional   | Boolean | Enable/disable cache usage entirely                                                                                         |                      `true`                       |
 | `params.cache.ttlSeconds` |  optional   | Integer | How long a cached result is considered fresh (sessionStorage TTL)                                                           |                      `3600`                       |
 | `params.cache.storage`    |  optional   | String  | Cache backend: `'session'` for browser sessionStorage or `'memory'` for in-process cache                                    |                    `'session'`                    |
-| `params.debug`            |  optional   | Boolean | Enable verbose `[stackupRtd]` console logging                                                                               |                      `false`                      |
+| `params.debug`            |  optional   | Boolean | Send `debugDomain` to the API instead of the page's domain                                                                  |                      `false`                      |
 | `params.debugDomain`      |  optional   | String  | Override the domain sent to the API when `debug: true`                                                                      |                    page domain                    |
 
 ## Timing
@@ -95,10 +95,10 @@ Without `waitForIt`, the module never holds an auction: it enriches the auction 
 The module checks consent for every auction, and adds no enrichment to an auction whose consent doesn't allow it:
 
 - **COPPA**: if `coppa: true` is set, the module adds no enrichment.
-- **GDPR**: when GDPR applies, the module requires consent for **Purpose 1** (Store/access information on a device) and **Purpose 4** (Select personalised content); legitimate interest is not accepted for either. If either purpose is missing, or if `vendorData` is absent (e.g. CMP timeout), the module adds no enrichment.
+- **GDPR**: when GDPR applies, the module requires consent for **Purpose 1** (Store/access information on a device) and **Purpose 4** (Use profiles to select personalised advertising); legitimate interest is not accepted for either. If either purpose is missing, or if `vendorData` is absent (e.g. CMP timeout), the module adds no enrichment.
 - **USP / CCPA / GPP**: not enforced — the Stack Up API receives only a URL path and domain, no user identifiers, so US sale-of-data frameworks do not apply.
 
-The enrichment request is sent when the module initializes, at `setConfig` time, so that it runs alongside the CMP lookup instead of after it, and the first auction doesn't wait for one and then the other. It is therefore usually sent before the CMP has answered. It carries no user identifiers, only a URL path and domain; consent decides whether the result is added to an auction. With Prebid's TCF enforcement (`tcfControl`), the module can't read or write its sessionStorage cache until the CMP has answered and allows it. If consent is already denied when the module initializes, no request is sent.
+The enrichment request is sent when the module initializes, at `setConfig` time, so that it runs alongside the CMP lookup instead of after it, and the first auction doesn't wait for one and then the other. It is therefore usually sent before the CMP has answered. It carries no user identifiers, only a URL path and domain; consent decides whether the result is added to an auction. The module has no GVL ID, so with Prebid's TCF enforcement (`tcfControl`) and its default vendor checks, GDPR traffic gets only the `site` data: the sessionStorage cache is never used and `user.data` is never added, even with consent. To allow both, add `stackupRtd` to `vendorExceptions` of the `storage` and `personalizedAds` rules. If consent is already denied when the module initializes, no request is sent.
 
 ## Article ID Resolution
 
@@ -189,7 +189,7 @@ After a successful enrichment the following fields are merged into the global `o
 }
 ```
 
-Data blocks are matched by `name` plus `ext.segtax`, so the 2.2 and 3.1 blocks remain separate. Matching blocks are unioned by `segment[].id`; publisher-provided segment fields win on an ID collision. Existing publisher `site.cattax`, `site.pagecat`, and content extension values are preserved. The `site.cattax`/`site.pagecat` pair is copied only when the enrichment response carries both halves and the publisher has declared no `site.cat`, `site.sectioncat`, or `site.pagecat` of their own — one `site.cattax` governs all three arrays, so a partial copy would reinterpret category ids the module never set. The resolved URL path is used for the API lookup and cache key, but is not synthesized into `site.content.id`.
+Data blocks are matched by `name`, `ext.segtax` and `ext.stackup.dimension`, so the 2.2 and 3.1 blocks remain separate. Matching blocks are unioned by `segment[].id`; publisher-provided segment fields win on an ID collision. Existing publisher `site.cattax`, `site.pagecat`, and content extension values are preserved. The `site.cattax`/`site.pagecat` pair is copied only when the enrichment response carries both halves and the publisher has declared no `site.cat`, `site.sectioncat`, or `site.pagecat` of their own — one `site.cattax` governs all three arrays, so a partial copy would reinterpret category ids the module never set. The resolved URL path is used for the API lookup and cache key, but is not synthesized into `site.content.id`.
 
 ## Integration Example
 
