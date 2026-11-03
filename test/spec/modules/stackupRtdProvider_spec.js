@@ -16,6 +16,7 @@ import {
 import * as utils from "src/utils.js";
 import { config } from "src/config.js";
 import * as refererDetection from "src/refererDetection.js";
+import { gdprDataHandler } from "src/consentHandler.js";
 
 // ─── fixtures ───────────────────────────────────────────────────────────────
 
@@ -367,6 +368,76 @@ describe("StackUp RTD Provider", function () {
         },
       });
       expect(server.requests.length).to.equal(0);
+    });
+  });
+
+  // ── 4a. init – before the CMP has answered ─────────────────────────────
+
+  describe("init – before the CMP has answered", function () {
+    const consents = (granted) => ({
+      gdprApplies: true,
+      vendorData: { purpose: { consents: granted, legitimateInterests: {} } },
+    });
+
+    beforeEach(function () {
+      // consent management is configured, its CMP lookup still in flight
+      gdprDataHandler.reset();
+      gdprDataHandler.enable();
+    });
+
+    afterEach(function () {
+      gdprDataHandler.reset();
+    });
+
+    it("should not call the API until the CMP answers, then call it", async function () {
+      expect(subModuleObj.init(VALID_CONFIG, {})).to.equal(true);
+      expect(server.requests).to.have.length(0);
+
+      gdprDataHandler.setConsentData(consents({ 1: true, 4: true }));
+      await flushMicrotasks();
+      expect(server.requests).to.have.length(1);
+    });
+
+    it("should never call the API when the CMP's answer denies consent", async function () {
+      subModuleObj.init(VALID_CONFIG, {});
+      gdprDataHandler.setConsentData(consents({ 1: true }));
+      await flushMicrotasks();
+
+      const cb = sinon.spy();
+      subModuleObj.getBidRequestData(
+        { auctionId: "a-denied", ortb2Fragments: { global: {} } },
+        cb,
+        VALID_CONFIG,
+        { gdpr: consents({ 1: true }) },
+        AUCTION_DELAY
+      );
+      expect(cb.calledOnce).to.be.true;
+      expect(getAuctionEnrichment("a-denied").status).to.equal("noConsent");
+      expect(server.requests).to.have.length(0);
+    });
+
+    it("should load on the first auction with consent when the CMP lookup fails", async function () {
+      subModuleObj.init(VALID_CONFIG, {});
+      gdprDataHandler.error(new Error("no CMP"));
+      await flushMicrotasks();
+      expect(server.requests).to.have.length(0);
+
+      const req = { ortb2Fragments: { global: {} } };
+      const cb = sinon.spy();
+      subModuleObj.getBidRequestData(
+        req,
+        cb,
+        VALID_CONFIG,
+        { gdpr: consents({ 1: true, 4: true }) },
+        AUCTION_DELAY
+      );
+      expect(server.requests).to.have.length(1);
+      expect(cb.called).to.be.false;
+
+      respond200(VALID_API_RESPONSE);
+      await flushMicrotasks();
+      expect(cb.calledOnce).to.be.true;
+      expect(req.ortb2Fragments.global.site.content.data).to.have.length(1);
     });
   });
 
