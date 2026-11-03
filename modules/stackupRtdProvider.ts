@@ -39,6 +39,9 @@ const MODULE_TYPE = "realTimeData";
 const DEFAULT_TIMEOUT = 300;
 // Upper bound for the shared enrichment fetch, independent of any auction.
 const FETCH_TIMEOUT = 3000;
+// How much earlier than core's auctionDelay timer we release a waiting auction.
+// Both timers would otherwise expire together and core's, scheduled first, wins.
+const RELEASE_MARGIN = 5;
 const DEFAULT_API_URL = "https://api.stackup-ai.com/v1/enrich-ortb-rtd";
 const CACHE_KEY_PREFIX = "stackup:enrich:v1:";
 const CACHE_SCHEMA_VERSION = 2;
@@ -504,13 +507,17 @@ function getBidRequestData(
     requestedTimeout > 0
       ? requestedTimeout
       : DEFAULT_TIMEOUT;
-  // Honor the auction-delay budget passed by core as the 5th argument.
-  // Core computes it as `shouldDelayAuction ? auctionDelay : 0`, so it is 0
-  // when the publisher runs us non-blocking or omits auctionDelay entirely.
-  // A naive Math.min would zero-out our own budget in that case, so treat
-  // 0/falsy as "no external cap" and fall back to our own timeout.
-  const budget = isNumber(timeout) && timeout > 0 ? timeout : Infinity;
-  const effectiveTimeout = Math.min(ownTimeout, budget);
+  // Core passes its auctionDelay as the 5th argument, or 0 when it does not
+  // delay auctions at all. It only waits for providers configured with
+  // waitForIt; for anything else the auction starts without us, so waiting
+  // would only merge into an auction whose bid requests are already built.
+  const coreWaits =
+    config.waitForIt === true && isNumber(timeout) && timeout > 0;
+  // Release before core's own timer, so the auction never starts while we still
+  // hold it and our per-auction record exists when the auction is created.
+  const effectiveTimeout = coreWaits
+    ? Math.max(0, Math.min(ownTimeout, timeout - RELEASE_MARGIN))
+    : 0;
 
   // Core only assigns an auction ID after the RTD providers have run; assign it
   // now (as priceFloors does) so what we do here can be recorded for analytics
@@ -565,6 +572,10 @@ function getBidRequestData(
   if (state.state !== "fetching") {
     // error, idle — give up cleanly
     release("unavailable");
+    return;
+  }
+  if (!coreWaits) {
+    release("timedOut");
     return;
   }
 

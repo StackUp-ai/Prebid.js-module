@@ -20,8 +20,13 @@ import { config } from "src/config.js";
 
 const MOCK_API_URL = "https://mock.stackup.test/v1/enrich";
 
+// rtdModule's 5th getBidRequestData argument: the auctionDelay core waits for
+// providers configured with waitForIt.
+const AUCTION_DELAY = 1000;
+
 const VALID_CONFIG = {
   name: "stackupRtd",
+  waitForIt: true,
   params: {
     pubId: "test-pub-123",
     apiUrl: MOCK_API_URL,
@@ -541,18 +546,18 @@ describe("StackUp RTD Provider", function () {
       expect(getAuctionEnrichment(req.auctionId).status).to.equal("enriched");
     });
 
-    it("should keep only the 10 most recent auction records", function () {
+    it("should keep only the 50 most recent auction records", function () {
       // state is already "ready" from beforeEach, so each call is synchronous
-      for (let i = 0; i < 11; i++) {
+      for (let i = 0; i < 51; i++) {
         subModuleObj.getBidRequestData(
           { auctionId: `auction-evict-${i}`, ortb2Fragments: { global: {} } },
           sinon.spy(),
           VALID_CONFIG
         );
       }
-      expect(auctionEnrichmentCount()).to.equal(10);
+      expect(auctionEnrichmentCount()).to.equal(50);
       expect(getAuctionEnrichment("auction-evict-0")).to.be.undefined;
-      expect(getAuctionEnrichment("auction-evict-10").status).to.equal("enriched");
+      expect(getAuctionEnrichment("auction-evict-50").status).to.equal("enriched");
     });
   });
 
@@ -575,7 +580,9 @@ describe("StackUp RTD Provider", function () {
       subModuleObj.getBidRequestData(
         { auctionId: "a-failed", ortb2Fragments: { global: {} } },
         sinon.spy(),
-        VALID_CONFIG
+        VALID_CONFIG,
+        {},
+        AUCTION_DELAY
       );
       server.requests[0].respond(500, {}, "Server Error");
       await flushMicrotasks();
@@ -646,7 +653,7 @@ describe("StackUp RTD Provider", function () {
       const req = { ortb2Fragments: { global: {} } };
 
       subModuleObj.init(VALID_CONFIG, {});
-      subModuleObj.getBidRequestData(req, cb, VALID_CONFIG);
+      subModuleObj.getBidRequestData(req, cb, VALID_CONFIG, {}, AUCTION_DELAY);
       expect(cb.called).to.be.false; // not yet
 
       respond200(VALID_API_RESPONSE);
@@ -662,8 +669,11 @@ describe("StackUp RTD Provider", function () {
       subModuleObj.getBidRequestData(
         { ortb2Fragments: { global: {} } },
         cb,
-        VALID_CONFIG
+        VALID_CONFIG,
+        {},
+        AUCTION_DELAY
       );
+      expect(cb.called).to.be.false;
       server.requests[0].respond(500, {}, "Server Error");
       await flushMicrotasks();
 
@@ -676,8 +686,11 @@ describe("StackUp RTD Provider", function () {
       subModuleObj.getBidRequestData(
         { ortb2Fragments: { global: {} } },
         cb,
-        VALID_CONFIG
+        VALID_CONFIG,
+        {},
+        AUCTION_DELAY
       );
+      expect(cb.called).to.be.false;
       respond200({ site: {} }); // missing site.content → schema invalid
       await flushMicrotasks();
 
@@ -696,7 +709,9 @@ describe("StackUp RTD Provider", function () {
       subModuleObj.getBidRequestData(
         { ortb2Fragments: { global: {} } },
         cb,
-        timeoutConfig
+        timeoutConfig,
+        {},
+        AUCTION_DELAY
       );
 
       expect(cb.called).to.be.false;
@@ -734,33 +749,69 @@ describe("StackUp RTD Provider", function () {
       clock.restore();
     });
 
-    it("should ignore a zero auction-delay budget (non-blocking) and use params.timeout", function () {
-      // Core passes 0 when the publisher runs us non-blocking (no waitForIt / no
-      // auctionDelay). We must NOT zero out our own timeout — fall back to params.timeout.
-      const clock = sinon.useFakeTimers();
+    it("should release the auction at once when core does not delay it", function () {
+      // Core passes 0 when it does not delay auctions (no auctionDelay); the
+      // auction starts without us, so waiting could only merge into an auction
+      // whose bid requests are already built.
       const cb = sinon.spy();
-
-      const timeoutConfig = {
-        ...VALID_CONFIG,
-        params: { ...VALID_CONFIG.params, timeout: 100 },
-      };
-      subModuleObj.init(timeoutConfig, {});
-      // 5th arg = 0 (non-blocking path in core)
+      subModuleObj.init(VALID_CONFIG, {});
       subModuleObj.getBidRequestData(
-        { ortb2Fragments: { global: {} } },
+        { auctionId: "a-nodelay", ortb2Fragments: { global: {} } },
         cb,
-        timeoutConfig,
+        VALID_CONFIG,
         {},
         0
       );
+      expect(cb.calledOnce).to.be.true;
+      expect(getAuctionEnrichment("a-nodelay").status).to.equal("timedOut");
+    });
 
-      expect(cb.called).to.be.false;
-      clock.tick(50); // still within params.timeout — must NOT have fired yet
-      expect(cb.called).to.be.false;
-      clock.tick(60); // now past params.timeout (100 ms total)
+    it("should not wait without waitForIt, even when core delays the auction for other providers", async function () {
+      const cb = sinon.spy();
+      const req = { ortb2Fragments: { global: {} } };
+      const nonBlocking = { ...VALID_CONFIG, waitForIt: false };
+      subModuleObj.init(nonBlocking, {});
+      subModuleObj.getBidRequestData(req, cb, nonBlocking, {}, AUCTION_DELAY);
       expect(cb.calledOnce).to.be.true;
 
-      clock.restore();
+      respond200(VALID_API_RESPONSE);
+      await flushMicrotasks();
+      // the auction went ahead without us: its ortb2 is left alone
+      expect(req.ortb2Fragments.global).to.eql({});
+    });
+
+    it("should still enrich a non-delayed auction when the enrichment is already loaded", async function () {
+      subModuleObj.init(VALID_CONFIG, {});
+      respond200(VALID_API_RESPONSE);
+      await flushMicrotasks();
+      const req = { ortb2Fragments: { global: {} } };
+      subModuleObj.getBidRequestData(req, sinon.spy(), { ...VALID_CONFIG, waitForIt: false }, {}, 0);
+      expect(req.ortb2Fragments.global.site.content.data).to.have.length(1);
+    });
+
+    it("should release just before core's own auctionDelay timer", function () {
+      const clock = sinon.useFakeTimers();
+      try {
+        const cb = sinon.spy();
+        const slowConfig = {
+          ...VALID_CONFIG,
+          params: { ...VALID_CONFIG.params, timeout: 300 },
+        };
+        subModuleObj.init(slowConfig, {});
+        subModuleObj.getBidRequestData(
+          { ortb2Fragments: { global: {} } },
+          cb,
+          slowConfig,
+          {},
+          100
+        );
+        clock.tick(94);
+        expect(cb.called).to.be.false;
+        clock.tick(1); // 95 ms: 5 ms ahead of core's 100 ms timer
+        expect(cb.calledOnce).to.be.true;
+      } finally {
+        clock.restore();
+      }
     });
   });
 
@@ -772,7 +823,7 @@ describe("StackUp RTD Provider", function () {
       subModuleObj.init(VALID_CONFIG, {});
       const cb = sinon.spy();
       const req = { ortb2Fragments: { global: {} } };
-      subModuleObj.getBidRequestData(req, cb, VALID_CONFIG);
+      subModuleObj.getBidRequestData(req, cb, VALID_CONFIG, {}, AUCTION_DELAY);
       respond200(responseBody);
       await flushMicrotasks();
       return req;
@@ -1320,7 +1371,9 @@ describe("StackUp RTD Provider", function () {
       subModuleObj.getBidRequestData(
         { ortb2Fragments: { global: {} } },
         cb,
-        badTimeoutConfig
+        badTimeoutConfig,
+        {},
+        AUCTION_DELAY
       );
       clock.tick(299);
       expect(cb.called).to.be.false;

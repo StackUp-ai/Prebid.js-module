@@ -73,9 +73,11 @@ export interface AuctionEnrichment {
   enrichment: Readonly<EnrichmentSnapshot> | null;
 }
 
-// Enough for an analytics module to read a record before it is evicted, while
-// keeping long-lived SPA sessions with many auctions bounded.
-const MAX_AUCTIONS = 10;
+// Enough for an analytics module to read a record before it is evicted (bid won
+// events can arrive long after the auction, and pages may run an auction per ad
+// slot), while keeping long-lived SPA sessions bounded. Records are small: the
+// snapshot they point to is shared, not copied.
+const MAX_AUCTIONS = 50;
 
 const byAuctionId = new Map<string, AuctionEnrichment>();
 
