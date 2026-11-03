@@ -437,7 +437,18 @@ function getCachedEnrichment(articleId: string): EnrichmentSnapshot | null {
     if (parsed.v !== CACHE_SCHEMA_VERSION) return null;
     const ttlMs = cache.ttlSeconds * 1000;
     if (Date.now() - parsed.t > ttlMs) return null;
-    return parsed.d;
+    // sessionStorage outlives this code and anything on the page can write to
+    // it: only use an entry shaped like the snapshot a fresh response gives.
+    const d: EnrichmentSnapshot = parsed.d;
+    if (
+      !isPlainObject(d) ||
+      d.articleId !== articleId ||
+      !isValidEnrichment(d) ||
+      !isArray(d.user?.data)
+    ) {
+      return null;
+    }
+    return d;
   } catch {
     return null;
   }

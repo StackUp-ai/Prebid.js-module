@@ -1349,6 +1349,35 @@ describe("StackUp RTD Provider", function () {
       expect(server.requests.length).to.equal(1);
     });
 
+    it("should fetch instead of using a cached entry with no user object", function () {
+      const { user, ...withoutUser } = cachedSnapshot;
+      storageGetStub.returns(
+        JSON.stringify({ v: 2, t: Date.now(), d: withoutUser })
+      );
+      subModuleObj.init(VALID_CONFIG, {});
+      expect(server.requests.length).to.equal(1);
+    });
+
+    it("should fetch instead of using a cached entry with an invalid data block", function () {
+      const bad = JSON.parse(JSON.stringify(cachedSnapshot));
+      bad.site.content.data[0].ext.segtax = 999;
+      storageGetStub.returns(JSON.stringify({ v: 2, t: Date.now(), d: bad }));
+      subModuleObj.init(VALID_CONFIG, {});
+      expect(server.requests.length).to.equal(1);
+    });
+
+    it("should fetch instead of using a cached entry for another article", function () {
+      storageGetStub.returns(
+        JSON.stringify({
+          v: 2,
+          t: Date.now(),
+          d: { ...cachedSnapshot, articleId: "other-article" },
+        })
+      );
+      subModuleObj.init(VALID_CONFIG, {});
+      expect(server.requests.length).to.equal(1);
+    });
+
     it("should make an XHR request when cached entry is expired (default TTL 1 h)", function () {
       storageGetStub.returns(
         JSON.stringify({ v: 2, t: Date.now() - 7200 * 1000, d: cachedSnapshot })
