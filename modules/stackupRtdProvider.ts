@@ -445,9 +445,9 @@ function setCachedEnrichment(
   }
 }
 
-// Checked both at init and again for every auction: init normally runs at
-// setConfig time, before the CMP has been queried (consent is only loaded by
-// the first requestBids), so the consent passed to init is usually still empty.
+// Checked both at init and again for every auction: init runs at setConfig
+// time, and the CMP lookup that consent management starts then is asynchronous,
+// so the consent passed to init is usually still empty.
 function hasRequiredConsent(userConsent: AllConsentData): boolean {
   // COPPA: block all processing in child-directed contexts.
   if (userConsent?.coppa === true) return false;
