@@ -58,7 +58,9 @@ export interface EnrichmentSnapshot {
  * - `enriched`: the snapshot was merged into the auction's ortb2;
  * - `timedOut`: the auction was released before the enrichment was available;
  * - `noConsent`: consent for the auction did not allow enrichment;
- * - `unavailable`: there was no enrichment to add (module inert, fetch failed);
+ * - `unavailable`: there was no enrichment to add (no article, or the fetch
+ *   failed). An auction gets no record at all when the module did not
+ *   initialise (missing params, or consent already denied at init);
  * - `error`: merging the enrichment failed.
  */
 export type AuctionEnrichmentStatus =
@@ -73,6 +75,7 @@ export interface AuctionEnrichment {
   status: AuctionEnrichmentStatus;
   /**
    * The snapshot merged into the auction, set only when `status` is `enriched`.
+   * Its `user.data` is empty when activity controls kept our user.data out.
    * It is shared with the RTD provider and later auctions, so it must not be modified.
    */
   enrichment: Readonly<EnrichmentSnapshot> | null;

@@ -1608,6 +1608,59 @@ describe("StackUp RTD Provider", function () {
       expect(fragments.global.user.data).to.equal(publisherData);
       expect(publisherData.map((b) => b.name)).to.eql(["publisher.com"]);
     });
+
+    it("should leave user.data out of the auction's record when enrichUfpd keeps it out", function () {
+      const fragments = { global: {}, bidder: {} };
+      subModuleObj.getBidRequestData(
+        { auctionId: "a-ufpd-denied", ortb2Fragments: guardDenying("enrichUfpd")(fragments, {}) },
+        sinon.spy(),
+        VALID_CONFIG
+      );
+      const record = getAuctionEnrichment("a-ufpd-denied");
+      expect(record.status).to.equal("enriched");
+      expect(record.enrichment.site.content.data).to.have.length(1);
+      expect(record.enrichment.user.data).to.eql([]);
+    });
+
+    it("should leave user.data out of the auction's record when the publisher's user.data can't be read", function () {
+      const fragments = {
+        global: { user: { data: [{ name: "publisher.com", segment: [{ id: "p1" }] }] } },
+        bidder: {},
+      };
+      subModuleObj.getBidRequestData(
+        { auctionId: "a-transmit-denied", ortb2Fragments: guardDenying("transmitUfpd")(fragments, {}) },
+        sinon.spy(),
+        VALID_CONFIG
+      );
+      expect(getAuctionEnrichment("a-transmit-denied").enrichment.user.data).to.eql([]);
+    });
+
+    it("should keep user.data in the auction's record when it was added", function () {
+      const fragments = { global: {}, bidder: {} };
+      subModuleObj.getBidRequestData(
+        { auctionId: "a-ufpd-allowed", ortb2Fragments: guardOrtb2Fragments(fragments, {}) },
+        sinon.spy(),
+        VALID_CONFIG
+      );
+      expect(getAuctionEnrichment("a-ufpd-allowed").enrichment.user.data).to.have.length(1);
+    });
+
+    it("should merge into a publisher block whose segments are not all objects", function () {
+      const publisherBlock = {
+        name: "data.stackup-ai.com",
+        ext: { segtax: 501 },
+        segment: [null, { id: "p1" }],
+      };
+      const fragments = { global: { user: { data: [publisherBlock] } }, bidder: {} };
+      subModuleObj.getBidRequestData(
+        { auctionId: "a-null-segment", ortb2Fragments: guardOrtb2Fragments(fragments, {}) },
+        sinon.spy(),
+        VALID_CONFIG
+      );
+      expect(logErrorSpy.called).to.be.false;
+      expect(getAuctionEnrichment("a-null-segment").status).to.equal("enriched");
+      expect(fragments.global.user.data[0].segment.map((seg) => seg?.id)).to.eql([undefined, "p1", "1"]);
+    });
   });
 
   describe("site.keywords and site.ext.data", function () {

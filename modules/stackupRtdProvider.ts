@@ -622,14 +622,15 @@ function getBidRequestData(
       release("unavailable");
       return;
     }
+    let merged: EnrichmentSnapshot;
     try {
-      mergeIntoOrtb2(reqBidsConfigObj, state.enrichment);
+      merged = mergeIntoOrtb2(reqBidsConfigObj, state.enrichment);
     } catch (e) {
       logError("[stackupRtd] merge failed, auction proceeds clean", e);
       release("error");
       return;
     }
-    release("enriched", state.enrichment);
+    release("enriched", merged);
   };
 
   // This auction's consent is already known: when it rules enrichment out, do
@@ -678,7 +679,7 @@ function getBidRequestData(
 function mergeIntoOrtb2(
   reqBidsConfigObj: StartAuctionOptions,
   enrichment: EnrichmentSnapshot
-): void {
+): EnrichmentSnapshot {
   // RTD providers receive a guarded ortb2Fragments whose `global` is
   // getter-only: assigning to it throws in strict mode, so only fill it in
   // when it is missing.
@@ -694,7 +695,12 @@ function mergeIntoOrtb2(
   mergeSiteContent(global, ours.site);
   mergeSiteKeywords(global, ours.site.keywords);
   mergeSiteExtData(global, ours.site.ext?.data);
-  mergeUserData(global, ours.user.data);
+  const userDataAdded = mergeUserData(global, ours.user.data);
+  // Return what reached the auction, for its record: activity controls can keep
+  // our user.data out of it.
+  return userDataAdded || enrichment.user.data.length === 0
+    ? enrichment
+    : { ...enrichment, user: { data: [] } };
 }
 
 // One comma-separated list: the publisher's tokens first, then ours that are
@@ -798,8 +804,9 @@ function mergeSiteCategories(
   site.pagecat = ours.pagecat;
 }
 
-function mergeUserData(global: any, ours: any[]): void {
-  if (ours.length === 0) return;
+// Returns whether our blocks ended up in user.data.
+function mergeUserData(global: any, ours: any[]): boolean {
+  if (ours.length === 0) return false;
   const created = !global.user;
   if (created) global.user = {};
   const user = global.user;
@@ -807,8 +814,10 @@ function mergeUserData(global: any, ours: any[]): void {
   // (transmitUfpd) or drop our writes to it (enrichUfpd). `in` still sees
   // data we cannot read, so we never overwrite it.
   if ("data" in user) {
-    if (isArray(user.data)) mergeDataBlocks(user.data, ours);
-    return;
+    if (!isArray(user.data)) return false;
+    mergeDataBlocks(user.data, ours);
+    // enrichUfpd drops these writes without an error: check that they landed.
+    return hasDataBlocks(user.data, ours);
   }
 
   // Write the merged list in one assignment: the guard lets an empty array
@@ -817,12 +826,26 @@ function mergeUserData(global: any, ours: any[]): void {
   const data: any[] = [];
   mergeDataBlocks(data, ours);
   user.data = data;
-  if (created && !("data" in user)) {
+  if ("data" in user) return true;
+  if (created) {
     // enrichUfpd dropped the write: the user object we created for it would
     // reach bidders empty. `user` itself is not write-protected, so the delete
     // goes through the guard.
     delete global.user;
   }
+  return false;
+}
+
+// Whether every segment of ours is in target, in a block with the same key.
+function hasDataBlocks(target: any[], ours: any[]): boolean {
+  return ours.every((ourBlock) => {
+    const key = dataBlockKey(ourBlock);
+    const block = target.find((candidate: any) => dataBlockKey(candidate) === key);
+    const ids = new Set(
+      (isArray(block?.segment) ? block.segment : []).map((seg: any) => seg?.id)
+    );
+    return ourBlock.segment.every((seg: any) => ids.has(seg.id));
+  });
 }
 
 function mergeDataBlocks(target: any[], ours: any[]): void {
@@ -853,7 +876,7 @@ function mergeDataBlock(publisherBlock: any, stackupBlock: any): any {
   const publisher = dedupeSegments(publisherBlock);
   const stackup = dedupeSegments(stackupBlock);
   const segments = [...publisher.segment];
-  const publisherIds = new Set(segments.map((segment: any) => segment.id));
+  const publisherIds = new Set(segments.map((segment: any) => segment?.id));
   for (const segment of stackup.segment) {
     if (!publisherIds.has(segment.id)) {
       publisherIds.add(segment.id);
@@ -882,12 +905,13 @@ function mergeDataBlockExtPublisherFirst(publisher: any, stackup: any): any {
 function dedupeSegments(block: any): any {
   const byId = new Map<string, any>();
   for (const seg of isArray(block?.segment) ? block.segment : []) {
-    const existing = byId.get(seg.id);
+    // A publisher segment may not be an object; keep it rather than throw.
+    const existing = byId.get(seg?.id);
     if (!existing) {
-      byId.set(seg.id, seg);
+      byId.set(seg?.id, seg);
       continue;
     }
-    const ourConf = seg.ext?.confidence ?? 0;
+    const ourConf = seg?.ext?.confidence ?? 0;
     const theirConf = existing.ext?.confidence ?? 0;
     if (ourConf > theirConf) byId.set(seg.id, seg);
   }
