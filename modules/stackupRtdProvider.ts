@@ -18,8 +18,15 @@ import {
   isPlainObject,
   cyrb53Hash,
   deepClone,
+  generateUUID,
 } from "../src/utils.js";
 import { getRefererInfo } from "../src/refererDetection.js";
+import {
+  recordAuctionEnrichment,
+  resetAuctionEnrichments,
+  type AuctionEnrichmentStatus,
+  type EnrichmentSnapshot,
+} from "../libraries/stackupUtils/enrichment.js";
 import type { RTDProviderConfig, RtdProviderSpec } from "./rtdModule/spec.ts";
 
 // TCF purposes required by stackupRtd:
@@ -37,11 +44,6 @@ const CONTENT_SEGTAXES = new Set([6, 9, 502, 600]);
 const USER_SEGTAXES = new Set([4, 501]);
 // Site category arrays governed by a single `site.cattax`.
 const SITE_CATEGORY_FIELDS = ["cat", "sectioncat", "pagecat"];
-// Maximum number of auction snapshots to keep in memory at once.
-// On long-lived SPA sessions many auctions can fire; without a cap the map
-// grows without bound. FIFO eviction keeps the last N entries — enough for
-// any analytics adapter to read a snapshot before it is evicted.
-const MAX_SNAPSHOTS = 10;
 
 export const storage = getStorageManager({
   moduleType: MODULE_TYPE_RTD,
@@ -61,7 +63,6 @@ interface RtdInternalState {
   enrichment: EnrichmentSnapshot | null;
   fetchPromise: Promise<EnrichmentSnapshot> | null;
   pendingCallbacks: Array<() => void>;
-  snapshotsByAuctionId: Map<string, EnrichmentSnapshot>;
   config: RTDProviderConfig<"stackupRtd">;
 }
 
@@ -71,7 +72,6 @@ const state: RtdInternalState = {
   enrichment: null,
   fetchPromise: null,
   pendingCallbacks: [],
-  snapshotsByAuctionId: new Map(),
   config: null as any,
 };
 
@@ -98,74 +98,18 @@ declare module "./rtdModule/spec.ts" {
   }
 }
 
-type BrandSafetyBlock = unknown; // TODO: define properly when we have real data
-type EmotionBlock = unknown; // TODO: define properly when we have real data
-
-interface Ortb2Segment {
-  id: string;
-  name?: string;
-  value?: string;
-  ext?: { confidence?: number };
-}
-
-interface Ortb2DataBlock<TSegtax extends number> {
-  id?: string;
-  name: string;
-  ext?: {
-    segtax?: TSegtax;
-    [key: string]: unknown;
-  };
-  segment: Ortb2Segment[];
-}
-
-// types/stackup.ts — shared between RTD and analytics modules
-
-export interface EnrichmentSnapshot {
-  articleId: string;
-  fetchedAt: number; // unix ms when enrichment landed
-  source: "api" | "cache";
-  site: {
-    cattax?: number;
-    pagecat?: string[];
-    content: {
-      id?: string;
-      title?: string;
-      data: Ortb2ContentSegment[];
-      ext?: Record<string, unknown> & {
-        brand_safety?: BrandSafetyBlock;
-        emotion?: EmotionBlock;
-      };
-    };
-  };
-  user: {
-    data: Ortb2UserSegment[];
-  };
-}
-
-export type Ortb2ContentSegment = Ortb2DataBlock<6 | 9 | 502 | 600>;
-
-export type Ortb2UserSegment = Ortb2DataBlock<4 | 501>;
+export type {
+  EnrichmentSnapshot,
+  Ortb2ContentSegment,
+  Ortb2UserSegment,
+} from "../libraries/stackupUtils/enrichment.js";
 
 // Raw JSON shape returned by the Stackup enrichment API.
 // Mirrors EnrichmentSnapshot.site/user but without the client-added fields
 // (articleId, fetchedAt, source) that are stamped on after a successful fetch.
 interface RawEnrichmentResponse {
-  site: {
-    cattax?: number;
-    pagecat?: string[];
-    content: {
-      id?: string;
-      title?: string;
-      data: Ortb2ContentSegment[];
-      ext?: Record<string, unknown> & {
-        brand_safety?: BrandSafetyBlock;
-        emotion?: EmotionBlock;
-      };
-    };
-  };
-  user?: {
-    data?: Ortb2UserSegment[];
-  };
+  site: EnrichmentSnapshot["site"];
+  user?: Partial<EnrichmentSnapshot["user"]>;
 }
 
 type CacheStorageMode = "session" | "memory";
@@ -563,10 +507,20 @@ function getBidRequestData(
   const budget = isNumber(timeout) && timeout > 0 ? timeout : Infinity;
   const effectiveTimeout = Math.min(ownTimeout, budget);
 
+  // Core only assigns an auction ID after the RTD providers have run; assign it
+  // now (as priceFloors does) so what we do here can be recorded for analytics
+  // under the ID the auction will carry.
+  const auctionId = (reqBidsConfigObj.auctionId =
+    reqBidsConfigObj.auctionId || generateUUID());
+
   let callbackFired = false;
-  const release = () => {
+  const release = (
+    status: AuctionEnrichmentStatus,
+    enrichment: EnrichmentSnapshot | null = null
+  ) => {
     if (callbackFired) return; // CRITICAL — never call back twice
     callbackFired = true;
+    recordAuctionEnrichment({ auctionId, status, enrichment });
     callback();
   };
 
@@ -580,7 +534,7 @@ function getBidRequestData(
           "ms, releasing auction clean"
       );
     }
-    release();
+    release("timedOut");
   }, effectiveTimeout);
 
   const onReady = () => {
@@ -590,21 +544,21 @@ function getBidRequestData(
     if (callbackFired) return;
     if (!hasRequiredConsent(userConsent)) {
       logInfo("[stackupRtd] consent not granted, auction proceeds clean");
-      release();
+      release("noConsent");
       return;
     }
-    if (state.enrichment) {
-      try {
-        mergeIntoOrtb2(reqBidsConfigObj, state.enrichment);
-        // Stash snapshot keyed by auctionId so analytics adapter can retrieve it
-        if (reqBidsConfigObj.auctionId) {
-          storeSnapshot(reqBidsConfigObj.auctionId, state.enrichment);
-        }
-      } catch (e) {
-        logError("[stackupRtd] merge failed, auction proceeds clean", e);
-      }
+    if (!state.enrichment) {
+      release("unavailable");
+      return;
     }
-    release();
+    try {
+      mergeIntoOrtb2(reqBidsConfigObj, state.enrichment);
+    } catch (e) {
+      logError("[stackupRtd] merge failed, auction proceeds clean", e);
+      release("error");
+      return;
+    }
+    release("enriched", state.enrichment);
   };
 
   if (state.state === "ready") {
@@ -614,18 +568,7 @@ function getBidRequestData(
   } else {
     // error, idle — give up cleanly
     clearTimeout(timeoutId);
-    release();
-  }
-}
-
-// Inserts a snapshot keyed by auctionId, evicting the oldest entry when the
-// map exceeds MAX_SNAPSHOTS. Map insertion order is guaranteed by the spec so
-// `.keys().next().value` always returns the oldest key.
-function storeSnapshot(auctionId: string, snapshot: EnrichmentSnapshot): void {
-  state.snapshotsByAuctionId.set(auctionId, snapshot);
-  if (state.snapshotsByAuctionId.size > MAX_SNAPSHOTS) {
-    const oldest = state.snapshotsByAuctionId.keys().next().value;
-    state.snapshotsByAuctionId.delete(oldest);
+    release("unavailable");
   }
 }
 
@@ -795,11 +738,6 @@ function registerSubmodule() {
 
 registerSubmodule();
 
-// Exported only for unit tests — returns the current size of the snapshot map.
-export function _snapshotMapSizeForTesting(): number {
-  return state.snapshotsByAuctionId.size;
-}
-
 // Exported only for unit tests — resets the module-level singleton between test cases.
 export function _resetStateForTesting(): void {
   state.state = "idle";
@@ -807,7 +745,7 @@ export function _resetStateForTesting(): void {
   state.enrichment = null;
   state.fetchPromise = null;
   state.pendingCallbacks.length = 0;
-  state.snapshotsByAuctionId.clear();
+  resetAuctionEnrichments();
   inMemoryEnrichmentCache.clear();
   state.config = null as any;
 }

@@ -2,8 +2,11 @@ import {
   subModuleObj,
   storage,
   _resetStateForTesting,
-  _snapshotMapSizeForTesting,
 } from "modules/stackupRtdProvider.js";
+import {
+  getAuctionEnrichment,
+  auctionEnrichmentCount,
+} from "libraries/stackupUtils/enrichment.js";
 import { server } from "test/mocks/xhr.js";
 import {
   guardOrtb2Fragments,
@@ -518,19 +521,27 @@ describe("StackUp RTD Provider", function () {
       );
     });
 
-    it("should stash the snapshot keyed by auctionId", async function () {
+    it("should record the merged snapshot under the request's auctionId", function () {
       const req = {
         auctionId: "auction-abc",
         ortb2Fragments: { global: {} },
       };
       subModuleObj.getBidRequestData(req, sinon.spy(), VALID_CONFIG);
-      // Verify via a second call: content already present means snapshot was merged
-      expect(req.ortb2Fragments.global.site.content.data).to.have.length(1);
+      const record = getAuctionEnrichment("auction-abc");
+      expect(record.status).to.equal("enriched");
+      expect(record.enrichment.articleId).to.equal("test-article-001");
+      expect(record.enrichment.source).to.equal("api");
     });
 
-    it("should evict the oldest entry once the map exceeds 10 snapshots", function () {
-      // Insert 11 snapshots — state is already "ready" from beforeEach so
-      // each getBidRequestData call is synchronous.
+    it("should assign an auctionId when the request has none, and record under it", function () {
+      const req = { ortb2Fragments: { global: {} } };
+      subModuleObj.getBidRequestData(req, sinon.spy(), VALID_CONFIG);
+      expect(req.auctionId).to.be.a("string").and.not.be.empty;
+      expect(getAuctionEnrichment(req.auctionId).status).to.equal("enriched");
+    });
+
+    it("should keep only the 10 most recent auction records", function () {
+      // state is already "ready" from beforeEach, so each call is synchronous
       for (let i = 0; i < 11; i++) {
         subModuleObj.getBidRequestData(
           { auctionId: `auction-evict-${i}`, ortb2Fragments: { global: {} } },
@@ -538,8 +549,91 @@ describe("StackUp RTD Provider", function () {
           VALID_CONFIG
         );
       }
-      // Map must never exceed the cap of 10.
-      expect(_snapshotMapSizeForTesting()).to.equal(10);
+      expect(auctionEnrichmentCount()).to.equal(10);
+      expect(getAuctionEnrichment("auction-evict-0")).to.be.undefined;
+      expect(getAuctionEnrichment("auction-evict-10").status).to.equal("enriched");
+    });
+  });
+
+  describe("getBidRequestData – per-auction record for analytics", function () {
+    it("should record 'unavailable' when the module is inert", function () {
+      subModuleObj.getBidRequestData(
+        { auctionId: "a-idle", ortb2Fragments: { global: {} } },
+        sinon.spy(),
+        VALID_CONFIG
+      );
+      expect(getAuctionEnrichment("a-idle")).to.eql({
+        auctionId: "a-idle",
+        status: "unavailable",
+        enrichment: null,
+      });
+    });
+
+    it("should record 'unavailable' when the fetch fails", async function () {
+      subModuleObj.init(VALID_CONFIG, {});
+      subModuleObj.getBidRequestData(
+        { auctionId: "a-failed", ortb2Fragments: { global: {} } },
+        sinon.spy(),
+        VALID_CONFIG
+      );
+      server.requests[0].respond(500, {}, "Server Error");
+      await flushMicrotasks();
+      expect(getAuctionEnrichment("a-failed").status).to.equal("unavailable");
+    });
+
+    it("should record 'timedOut' when the auction is released before the enrichment lands", function () {
+      const clock = sinon.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+      try {
+        subModuleObj.init(VALID_CONFIG, {});
+        subModuleObj.getBidRequestData(
+          { auctionId: "a-slow", ortb2Fragments: { global: {} } },
+          sinon.spy(),
+          VALID_CONFIG,
+          {},
+          50
+        );
+        expect(getAuctionEnrichment("a-slow")).to.be.undefined;
+        clock.tick(60);
+        expect(getAuctionEnrichment("a-slow")).to.eql({
+          auctionId: "a-slow",
+          status: "timedOut",
+          enrichment: null,
+        });
+      } finally {
+        clock.restore();
+      }
+    });
+
+    it("should record 'noConsent' when the auction's consent denies enrichment", async function () {
+      subModuleObj.init(VALID_CONFIG, {});
+      respond200(VALID_API_RESPONSE);
+      await flushMicrotasks();
+      subModuleObj.getBidRequestData(
+        { auctionId: "a-noconsent", ortb2Fragments: { global: {} } },
+        sinon.spy(),
+        VALID_CONFIG,
+        { coppa: true }
+      );
+      expect(getAuctionEnrichment("a-noconsent").status).to.equal("noConsent");
+    });
+
+    it("should record 'error' when the merge fails", async function () {
+      subModuleObj.init(VALID_CONFIG, {});
+      respond200(VALID_API_RESPONSE);
+      await flushMicrotasks();
+      const fragments = {
+        get global() {
+          throw new Error("unreadable");
+        },
+      };
+      const cb = sinon.spy();
+      subModuleObj.getBidRequestData(
+        { auctionId: "a-error", ortb2Fragments: fragments },
+        cb,
+        VALID_CONFIG
+      );
+      expect(cb.calledOnce).to.be.true;
+      expect(getAuctionEnrichment("a-error").status).to.equal("error");
     });
   });
 
