@@ -103,11 +103,6 @@ const DUAL_TAXONOMY_API_RESPONSE = {
           name: "data.stackup-ai.com",
           segment: [{ id: "stackup:content:smartwatches" }],
         },
-        {
-          name: "example.com",
-          ext: { segtax: 600 },
-          segment: [{ id: "cpm_tier" }],
-        },
       ],
       ext: {
         stackup: {
@@ -861,7 +856,18 @@ describe("StackUp RTD Provider", function () {
       expect(req.ortb2Fragments.global.site).to.be.undefined;
     });
 
-    it("should accept dual taxonomy, standard audience, publisher FPD, GARM, and untagged data", async function () {
+    it("should reject a response carrying a segtax 600 block", async function () {
+      const legacy = JSON.parse(JSON.stringify(DUAL_TAXONOMY_API_RESPONSE));
+      legacy.site.content.data.push({
+        name: "example.com",
+        ext: { segtax: 600 },
+        segment: [{ id: "legacy" }],
+      });
+      const req = await runAndGetReq(legacy);
+      expect(req.ortb2Fragments.global.site).to.be.undefined;
+    });
+
+    it("should accept dual taxonomy, standard audience, GARM, and untagged data", async function () {
       const req = await runAndGetReq(DUAL_TAXONOMY_API_RESPONSE);
       expect(req.ortb2Fragments.global.site.cattax).to.equal(2);
       expect(req.ortb2Fragments.global.site.pagecat).to.deep.equal([
@@ -871,7 +877,7 @@ describe("StackUp RTD Provider", function () {
         req.ortb2Fragments.global.site.content.data.map(
           (block) => block.ext?.segtax
         )
-      ).to.deep.equal([6, 9, undefined, 600]);
+      ).to.deep.equal([6, 9, undefined]);
       expect(
         req.ortb2Fragments.global.user.data.map(
           (block) => block.ext?.segtax
@@ -1153,7 +1159,7 @@ describe("StackUp RTD Provider", function () {
       expect(global.site.cattax).to.equal(1);
       expect(global.site.pagecat).to.deep.equal(["IAB-publisher"]);
       expect(global.site.content.id).to.be.undefined;
-      expect(global.site.content.data).to.have.length(4);
+      expect(global.site.content.data).to.have.length(3);
       const content6 = global.site.content.data.find(
         (block) => block.ext?.segtax === 6
       );

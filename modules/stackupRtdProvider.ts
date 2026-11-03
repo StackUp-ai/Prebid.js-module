@@ -51,7 +51,7 @@ const CACHE_KEY_PREFIX = "stackup:enrich:v1:";
 // an earlier version of the module are fetched again rather than served without
 // the new fields. 3: site.keywords and site.ext.data.
 const CACHE_SCHEMA_VERSION = 3;
-const CONTENT_SEGTAXES = new Set([6, 9, 502, 600]);
+const CONTENT_SEGTAXES = new Set([6, 9, 502]);
 const USER_SEGTAXES = new Set([4, 501]);
 // Site category arrays governed by a single `site.cattax`.
 const SITE_CATEGORY_FIELDS = ["cat", "sectioncat", "pagecat"];

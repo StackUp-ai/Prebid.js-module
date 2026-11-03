@@ -10,7 +10,7 @@ Maintainers: anton@stackup-ai.com, chen@stackup-ai.com, nicolas@stackup-ai.com
 
 The Stack Up RTD module enriches Prebid.js bid requests with contextual and audience segments derived from the content of the current page. Before the auction fires, the module calls the Stack Up enrichment API (or reads from a `sessionStorage` cache on revisit) and merges the response into the global `ortb2` fragments:
 
-- **`site.content.data`** — IAB Content Taxonomy 2.2 (`segtax: 6`) and 3.1 (`segtax: 9`) segments, untagged Stack Up proprietary segments, and optional publisher profile data (`segtax: 600`).
+- **`site.content.data`** — IAB Content Taxonomy 2.2 (`segtax: 6`) and 3.1 (`segtax: 9`) segments and untagged Stack Up proprietary segments.
 - **`site.cattax` / `site.pagecat`** — the matching Content Taxonomy 2.2 page category when one is available.
 - **`site.keywords`** — comma-separated article keywords. Added after any keywords the publisher already set, without repeating a token.
 - **`site.ext.data`** — publisher-level data. Available only to publishers with a separate agreement with Stack Up. Only keys the publisher hasn't set are added.

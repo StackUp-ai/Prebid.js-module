@@ -22,7 +22,7 @@ interface Ortb2DataBlock<TSegtax extends number> {
   segment: Ortb2Segment[];
 }
 
-export type Ortb2ContentSegment = Ortb2DataBlock<6 | 9 | 502 | 600>;
+export type Ortb2ContentSegment = Ortb2DataBlock<6 | 9 | 502>;
 
 export type Ortb2UserSegment = Ortb2DataBlock<4 | 501>;
 
