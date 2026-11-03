@@ -612,12 +612,24 @@ function mergeIntoOrtb2(
   mergeUserData(global, ours.user.data);
 }
 
+// The merges below only create objects they are about to fill: an empty
+// site.content.data or user.data in the bid request would read as first-party
+// data the publisher never sent.
 function mergeSiteContent(global: any, ours: EnrichmentSnapshot["site"]): void {
+  const ourContent = ours.content;
+  const hasContent =
+    ourContent.id !== undefined ||
+    ourContent.title !== undefined ||
+    ourContent.data.length > 0 ||
+    ourContent.ext !== undefined;
+  const hasCategories = ours.cattax !== undefined && ours.pagecat !== undefined;
+  if (!hasContent && !hasCategories) return;
+
   global.site = global.site ?? {};
   mergeSiteCategories(global.site, ours);
-  global.site.content = global.site.content ?? { data: [] };
+  if (!hasContent) return;
+  global.site.content = global.site.content ?? {};
   const target = global.site.content;
-  const ourContent = ours.content;
 
   if (target.id === undefined && ourContent.id !== undefined) {
     target.id = ourContent.id;
@@ -626,8 +638,10 @@ function mergeSiteContent(global: any, ours: EnrichmentSnapshot["site"]): void {
     target.title = ourContent.title;
   }
 
-  target.data = isArray(target.data) ? target.data : [];
-  mergeDataBlocks(target.data, ourContent.data);
+  if (ourContent.data.length > 0) {
+    target.data = isArray(target.data) ? target.data : [];
+    mergeDataBlocks(target.data, ourContent.data);
+  }
 
   if (ourContent.ext !== undefined) {
     target.ext = mergeContentExtPublisherFirst(target.ext, ourContent.ext);
@@ -660,6 +674,7 @@ function mergeSiteCategories(
 }
 
 function mergeUserData(global: any, ours: any[]): void {
+  if (ours.length === 0) return;
   global.user = global.user ?? {};
   const user = global.user;
   // Activity controls can hide the publisher's user.data from our reads

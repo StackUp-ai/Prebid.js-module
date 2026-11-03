@@ -898,7 +898,8 @@ describe("StackUp RTD Provider", function () {
       const siteOnly = { ...VALID_API_RESPONSE, user: undefined };
       const req = await runAndGetReq(siteOnly);
       expect(req.ortb2Fragments.global.site.content.data).to.have.length(1);
-      expect(req.ortb2Fragments.global.user.data).to.deep.equal([]); // empty normalised
+      // nothing to add, so no user object is created
+      expect(req.ortb2Fragments.global).to.not.have.property("user");
     });
 
     it("should not create site.content.id from the resolved path", async function () {
@@ -1488,6 +1489,47 @@ describe("StackUp RTD Provider", function () {
       expect(logErrorSpy.called).to.be.false;
       expect(fragments.global.user.data).to.equal(publisherData);
       expect(publisherData.map((b) => b.name)).to.eql(["publisher.com"]);
+    });
+  });
+
+  describe("getBidRequestData – nothing to add", function () {
+    async function mergeResponse(body, global = {}) {
+      subModuleObj.init(VALID_CONFIG, {});
+      respond200(body);
+      await flushMicrotasks();
+      const req = { ortb2Fragments: { global } };
+      subModuleObj.getBidRequestData(req, sinon.spy(), VALID_CONFIG);
+      return req.ortb2Fragments.global;
+    }
+
+    it("should leave ortb2 untouched when the enrichment carries no data", async function () {
+      const global = await mergeResponse({ site: { content: { data: [] } }, user: { data: [] } });
+      expect(global).to.eql({});
+    });
+
+    it("should not add an empty site.content.data when only id/title come back", async function () {
+      const global = await mergeResponse({
+        site: { content: { title: "Only a title", data: [] } },
+      });
+      expect(global.site.content).to.eql({ title: "Only a title" });
+      expect(global).to.not.have.property("user");
+    });
+
+    it("should write categories without creating site.content when there is no content", async function () {
+      const global = await mergeResponse({
+        site: { cattax: 2, pagecat: ["IAB19-6"], content: { data: [] } },
+      });
+      expect(global).to.eql({ site: { cattax: 2, pagecat: ["IAB19-6"] } });
+    });
+
+    it("should not touch the publisher's user object when there are no user segments", async function () {
+      const publisherUser = { yob: 1990 };
+      const global = await mergeResponse(
+        { site: { content: { data: [] } } },
+        { user: publisherUser }
+      );
+      expect(global.user).to.equal(publisherUser);
+      expect(publisherUser).to.eql({ yob: 1990 });
     });
   });
 
