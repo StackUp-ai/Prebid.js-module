@@ -725,16 +725,29 @@ function mergeSiteCategories(
 
 function mergeUserData(global: any, ours: any[]): void {
   if (ours.length === 0) return;
-  global.user = global.user ?? {};
+  const created = !global.user;
+  if (created) global.user = {};
   const user = global.user;
   // Activity controls can hide the publisher's user.data from our reads
   // (transmitUfpd) or drop our writes to it (enrichUfpd). `in` still sees
-  // data we cannot read, so we never overwrite it with an empty array.
-  if (!("data" in user)) user.data = [];
-  const target = user.data;
-  if (!isArray(target)) return;
+  // data we cannot read, so we never overwrite it.
+  if ("data" in user) {
+    if (isArray(user.data)) mergeDataBlocks(user.data, ours);
+    return;
+  }
 
-  mergeDataBlocks(target, ours);
+  // Write the merged list in one assignment: the guard lets an empty array
+  // through even under enrichUfpd, so `user.data = []` followed by pushes
+  // would leave an empty list behind.
+  const data: any[] = [];
+  mergeDataBlocks(data, ours);
+  user.data = data;
+  if (created && !("data" in user)) {
+    // enrichUfpd dropped the write: the user object we created for it would
+    // reach bidders empty. `user` itself is not write-protected, so the delete
+    // goes through the guard.
+    delete global.user;
+  }
 }
 
 function mergeDataBlocks(target: any[], ours: any[]): void {

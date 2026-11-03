@@ -1463,8 +1463,31 @@ describe("StackUp RTD Provider", function () {
       );
       expect(logErrorSpy.called).to.be.false;
       expect(fragments.global.site.content.data).to.have.length(1);
-      // the guard lets an empty user.data through, but none of our segments
-      expect(fragments.global.user?.data ?? []).to.be.empty;
+      expect(fragments.global).to.not.have.property("user");
+    });
+
+    it("should not leave an empty user object behind when enrichUfpd is denied", function () {
+      const fragments = { global: {}, bidder: {} };
+      subModuleObj.getBidRequestData(
+        { ortb2Fragments: guardDenying("enrichUfpd")(fragments, {}) },
+        sinon.spy(),
+        VALID_CONFIG
+      );
+      expect(logErrorSpy.called).to.be.false;
+      expect(fragments.global.site.content.data).to.have.length(1);
+      expect(fragments.global).to.not.have.property("user");
+    });
+
+    it("should keep the publisher's own user object when enrichUfpd is denied", function () {
+      const publisherUser = { yob: 1990 };
+      const fragments = { global: { user: publisherUser }, bidder: {} };
+      subModuleObj.getBidRequestData(
+        { ortb2Fragments: guardDenying("enrichUfpd")(fragments, {}) },
+        sinon.spy(),
+        VALID_CONFIG
+      );
+      expect(fragments.global.user).to.equal(publisherUser);
+      expect(publisherUser).to.eql({ yob: 1990 });
     });
 
     it("should keep the publisher's user.data when enrichUfpd is denied", function () {
