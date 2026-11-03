@@ -47,7 +47,10 @@ const RELEASE_MARGIN = 5;
 const MAX_MEMORY_CACHE_ENTRIES = 20;
 const DEFAULT_API_URL = "https://api.stackup-ai.com/v1/enrich-ortb-rtd";
 const CACHE_KEY_PREFIX = "stackup:enrich:v1:";
-const CACHE_SCHEMA_VERSION = 2;
+// Bumped whenever the cached snapshot changes shape, so that entries written by
+// an earlier version of the module are fetched again rather than served without
+// the new fields. 3: site.keywords and site.ext.data.
+const CACHE_SCHEMA_VERSION = 3;
 const CONTENT_SEGTAXES = new Set([6, 9, 502, 600]);
 const USER_SEGTAXES = new Set([4, 501]);
 // Site category arrays governed by a single `site.cattax`.
@@ -313,6 +316,7 @@ function fetchEnrichment(
           ...(data.site.pagecat !== undefined
             ? { pagecat: data.site.pagecat }
             : {}),
+          ...siteFirstPartyData(data.site),
           content: { ...data.site.content },
         },
         user: { data: data.user?.data ?? [] },
@@ -321,6 +325,30 @@ function fetchEnrichment(
       return snapshot;
     })
     .finally(() => clearTimeout(fetchTimer));
+}
+
+// site.keywords and site.ext.data are optional extras: a value of the wrong
+// type is left out instead of failing the response, so it cannot cost the
+// auction the segments that came with it.
+function siteFirstPartyData(
+  site: any
+): Pick<EnrichmentSnapshot["site"], "keywords" | "ext"> {
+  const keywords = keywordTokens(site.keywords);
+  const extData = site.ext?.data;
+  return {
+    ...(keywords.length > 0 ? { keywords: keywords.join(",") } : {}),
+    ...(isPlainObject(extData) && Object.keys(extData).length > 0
+      ? { ext: { data: extData } }
+      : {}),
+  };
+}
+
+function keywordTokens(keywords: unknown): string[] {
+  if (typeof keywords !== "string") return [];
+  return keywords
+    .split(",")
+    .map((token) => token.trim())
+    .filter((token) => token.length > 0);
 }
 
 function isValidEnrichment(data: any): data is RawEnrichmentResponse {
@@ -664,7 +692,49 @@ function mergeIntoOrtb2(
   // whatever later edits this auction's ortb2 cannot reach the next auction.
   const ours = deepClone(enrichment);
   mergeSiteContent(global, ours.site);
+  mergeSiteKeywords(global, ours.site.keywords);
+  mergeSiteExtData(global, ours.site.ext?.data);
   mergeUserData(global, ours.user.data);
+}
+
+// One comma-separated list: the publisher's tokens first, then ours that are
+// not already in it. The publisher's value is left as it is when we have
+// nothing new to add, or when it is not a string.
+function mergeSiteKeywords(global: any, ours: unknown): void {
+  const publisher = global.site?.keywords;
+  if (publisher !== undefined && !isStr(publisher)) return;
+
+  const tokens = keywordTokens(publisher);
+  const seen = new Set(tokens);
+  const added = keywordTokens(ours).filter((token) => {
+    if (seen.has(token)) return false;
+    seen.add(token);
+    return true;
+  });
+  if (added.length === 0) return;
+
+  global.site = global.site ?? {};
+  global.site.keywords = [...tokens, ...added].join(",");
+}
+
+// Adds only the keys the publisher has not set. A publisher site.ext or
+// site.ext.data that is not an object is left alone.
+function mergeSiteExtData(global: any, ours: unknown): void {
+  if (!isPlainObject(ours) || Object.keys(ours).length === 0) return;
+  const ext = global.site?.ext;
+  if (ext !== undefined && !isPlainObject(ext)) return;
+  const data = ext?.data;
+  if (data !== undefined && !isPlainObject(data)) return;
+
+  global.site = global.site ?? {};
+  global.site.ext = global.site.ext ?? {};
+  if (data === undefined) {
+    global.site.ext.data = { ...(ours as Record<string, unknown>) };
+    return;
+  }
+  for (const [key, value] of Object.entries(ours as Record<string, unknown>)) {
+    if (!(key in data)) data[key] = value;
+  }
 }
 
 // The merges below only create objects they are about to fill: an empty

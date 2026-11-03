@@ -12,6 +12,8 @@ The Stack Up RTD module enriches Prebid.js bid requests with contextual and audi
 
 - **`site.content.data`** — IAB Content Taxonomy 2.2 (`segtax: 6`) and 3.1 (`segtax: 9`) segments, untagged Stack Up proprietary segments, and optional publisher profile data (`segtax: 600`).
 - **`site.cattax` / `site.pagecat`** — the matching Content Taxonomy 2.2 page category when one is available.
+- **`site.keywords`** — comma-separated article keywords. Added after any keywords the publisher already set, without repeating a token.
+- **`site.ext.data`** — publisher-level data. Available only to publishers with a separate agreement with Stack Up. Only keys the publisher hasn't set are added.
 - **`user.data`** — IAB Audience Taxonomy segments (`segtax: 4`) and untagged Stack Up proprietary audience segments inferred from contextual signals.
 
 During migration the module also accepts the legacy Stack Up content and audience values (`segtax: 502` and `segtax: 501`) from cached or not-yet-rebuilt enrichment responses.
@@ -126,7 +128,7 @@ stackup:enrich:v1:path_<hash>
 ```
 
 With `params.cache.storage: 'memory'`, entries are kept in runtime memory only (the 20 most recent articles) and are cleared on full page reload.
-Cache entries expire after `params.cache.ttlSeconds` (default 1 hour). An entry that doesn't pass the same validation as an API response is ignored and the article is fetched again. Setting `params.cache.enabled: false` disables both reads and writes.
+Cache entries expire after `params.cache.ttlSeconds` (default 1 hour). An entry that doesn't pass the same validation as an API response, or that was written by an earlier version of the module with a different snapshot format, is ignored and the article is fetched again. Setting `params.cache.enabled: false` disables both reads and writes.
 
 The hash is derived from article context (articleId plus publisher/request context), preventing cross-publisher/context cache reuse in a shared browser session.
 

@@ -33,6 +33,11 @@ export interface EnrichmentSnapshot {
   site: {
     cattax?: number;
     pagecat?: string[];
+    // Comma-separated keywords.
+    keywords?: string;
+    // Publisher-level data, present only when the publisher's agreement with
+    // Stack Up includes it.
+    ext?: { data: Record<string, unknown> };
     content: {
       id?: string;
       title?: string;

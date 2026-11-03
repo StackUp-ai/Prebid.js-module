@@ -1268,7 +1268,7 @@ describe("StackUp RTD Provider", function () {
 
     it("should not make an XHR request on a valid cache hit", async function () {
       storageGetStub.returns(
-        JSON.stringify({ v: 2, t: Date.now(), d: cachedSnapshot })
+        JSON.stringify({ v: 3, t: Date.now(), d: cachedSnapshot })
       );
       subModuleObj.init(VALID_CONFIG, {});
       expect(server.requests.length).to.equal(0);
@@ -1290,10 +1290,37 @@ describe("StackUp RTD Provider", function () {
       expect(server.requests.length).to.equal(1);
     });
 
+    it("should fetch again instead of serving a snapshot cached before site.keywords and site.ext.data", function () {
+      storageGetStub.returns(
+        JSON.stringify({ v: 2, t: Date.now(), d: cachedSnapshot })
+      );
+      subModuleObj.init(VALID_CONFIG, {});
+      expect(server.requests.length).to.equal(1);
+    });
+
+    it("should merge site.keywords and site.ext.data from a cache hit", async function () {
+      const withFpd = {
+        ...cachedSnapshot,
+        site: {
+          ...cachedSnapshot.site,
+          keywords: "football,section=sport",
+          ext: { data: { site_name: "Example" } },
+        },
+      };
+      storageGetStub.returns(JSON.stringify({ v: 3, t: Date.now(), d: withFpd }));
+      subModuleObj.init(VALID_CONFIG, {});
+      expect(server.requests.length).to.equal(0);
+
+      const req = { ortb2Fragments: { global: {} } };
+      subModuleObj.getBidRequestData(req, sinon.spy(), VALID_CONFIG);
+      expect(req.ortb2Fragments.global.site.keywords).to.equal("football,section=sport");
+      expect(req.ortb2Fragments.global.site.ext.data).to.eql({ site_name: "Example" });
+    });
+
     it("should fetch instead of using a cached entry with no user object", function () {
       const { user, ...withoutUser } = cachedSnapshot;
       storageGetStub.returns(
-        JSON.stringify({ v: 2, t: Date.now(), d: withoutUser })
+        JSON.stringify({ v: 3, t: Date.now(), d: withoutUser })
       );
       subModuleObj.init(VALID_CONFIG, {});
       expect(server.requests.length).to.equal(1);
@@ -1302,7 +1329,7 @@ describe("StackUp RTD Provider", function () {
     it("should fetch instead of using a cached entry with an invalid data block", function () {
       const bad = JSON.parse(JSON.stringify(cachedSnapshot));
       bad.site.content.data[0].ext.segtax = 999;
-      storageGetStub.returns(JSON.stringify({ v: 2, t: Date.now(), d: bad }));
+      storageGetStub.returns(JSON.stringify({ v: 3, t: Date.now(), d: bad }));
       subModuleObj.init(VALID_CONFIG, {});
       expect(server.requests.length).to.equal(1);
     });
@@ -1310,7 +1337,7 @@ describe("StackUp RTD Provider", function () {
     it("should fetch instead of using a cached entry for another article", function () {
       storageGetStub.returns(
         JSON.stringify({
-          v: 2,
+          v: 3,
           t: Date.now(),
           d: { ...cachedSnapshot, articleId: "other-article" },
         })
@@ -1341,7 +1368,7 @@ describe("StackUp RTD Provider", function () {
 
     it("should make an XHR request when cached entry is expired (default TTL 1 h)", function () {
       storageGetStub.returns(
-        JSON.stringify({ v: 2, t: Date.now() - 7200 * 1000, d: cachedSnapshot })
+        JSON.stringify({ v: 3, t: Date.now() - 7200 * 1000, d: cachedSnapshot })
       );
       subModuleObj.init(VALID_CONFIG, {});
       expect(server.requests.length).to.equal(1);
@@ -1358,7 +1385,7 @@ describe("StackUp RTD Provider", function () {
       expect(key).to.include("stackup:enrich:v1:path_");
 
       const stored = JSON.parse(value);
-      expect(stored.v).to.equal(2);
+      expect(stored.v).to.equal(3);
       expect(stored.d.articleId).to.equal("test-article-001");
       expect(stored.d.source).to.equal("api");
     });
@@ -1380,7 +1407,7 @@ describe("StackUp RTD Provider", function () {
         },
       };
       storageGetStub.returns(
-        JSON.stringify({ v: 2, t: Date.now(), d: cachedSnapshot })
+        JSON.stringify({ v: 3, t: Date.now(), d: cachedSnapshot })
       );
 
       subModuleObj.init(noCacheConfig, {});
@@ -1447,7 +1474,7 @@ describe("StackUp RTD Provider", function () {
 
     it("should mark cached snapshots with source 'cache'", async function () {
       storageGetStub.returns(
-        JSON.stringify({ v: 2, t: Date.now(), d: cachedSnapshot })
+        JSON.stringify({ v: 3, t: Date.now(), d: cachedSnapshot })
       );
       subModuleObj.init(VALID_CONFIG, {});
       await flushMicrotasks();
@@ -1574,6 +1601,146 @@ describe("StackUp RTD Provider", function () {
       expect(logErrorSpy.called).to.be.false;
       expect(fragments.global.user.data).to.equal(publisherData);
       expect(publisherData.map((b) => b.name)).to.eql(["publisher.com"]);
+    });
+  });
+
+  describe("site.keywords and site.ext.data", function () {
+    const FPD_RESPONSE = {
+      ...VALID_API_RESPONSE,
+      site: {
+        ...VALID_API_RESPONSE.site,
+        keywords: "football, transfers,section=sport,edition=uk",
+        ext: {
+          data: {
+            site_name: "Example",
+            topics: ["sports"],
+            edition: "uk",
+          },
+        },
+      },
+    };
+
+    async function mergeResponse(body, global = {}, ortb2Fragments) {
+      subModuleObj.init(VALID_CONFIG, {});
+      respond200(body);
+      await flushMicrotasks();
+      const fragments = ortb2Fragments ?? { global };
+      subModuleObj.getBidRequestData({ ortb2Fragments: fragments }, sinon.spy(), VALID_CONFIG);
+      return global;
+    }
+
+    it("should forward both fields when the publisher has set neither", async function () {
+      const global = await mergeResponse(FPD_RESPONSE);
+      expect(global.site.keywords).to.equal(
+        "football,transfers,section=sport,edition=uk"
+      );
+      expect(global.site.ext.data).to.eql(FPD_RESPONSE.site.ext.data);
+      expect(global.site.content.data).to.have.length(1);
+    });
+
+    it("should put the publisher's keywords first and not repeat a token", async function () {
+      const global = await mergeResponse(FPD_RESPONSE, {
+        site: { keywords: "transfers,local news" },
+      });
+      expect(global.site.keywords).to.equal(
+        "transfers,local news,football,section=sport,edition=uk"
+      );
+    });
+
+    it("should leave the publisher's keywords as they are when we add no new token", async function () {
+      const global = await mergeResponse(
+        { ...VALID_API_RESPONSE, site: { ...VALID_API_RESPONSE.site, keywords: "football" } },
+        { site: { keywords: "football , sport" } }
+      );
+      expect(global.site.keywords).to.equal("football , sport");
+    });
+
+    it("should not touch publisher keywords that are not a string", async function () {
+      const global = await mergeResponse(FPD_RESPONSE, {
+        site: { keywords: ["publisher"] },
+      });
+      expect(global.site.keywords).to.eql(["publisher"]);
+    });
+
+    it("should keep the publisher's site.ext.data values and add only missing keys", async function () {
+      const publisherData = { site_name: "Publisher's own", section: "sport" };
+      const global = await mergeResponse(FPD_RESPONSE, {
+        site: { ext: { data: publisherData, other: 1 } },
+      });
+      expect(global.site.ext.data).to.equal(publisherData);
+      expect(publisherData).to.eql({
+        site_name: "Publisher's own",
+        section: "sport",
+        topics: ["sports"],
+        edition: "uk",
+      });
+      expect(global.site.ext.other).to.equal(1);
+    });
+
+    it("should not touch a publisher site.ext.data that is not an object", async function () {
+      const global = await mergeResponse(FPD_RESPONSE, {
+        site: { ext: { data: "publisher" } },
+      });
+      expect(global.site.ext.data).to.equal("publisher");
+    });
+
+    it("should ignore values of the wrong type and still merge the segments", async function () {
+      const global = await mergeResponse({
+        ...VALID_API_RESPONSE,
+        site: { ...VALID_API_RESPONSE.site, keywords: 42, ext: { data: ["not", "an", "object"] } },
+      });
+      expect(global.site).to.not.have.property("keywords");
+      expect(global.site).to.not.have.property("ext");
+      expect(global.site.content.data).to.have.length(1);
+    });
+
+    it("should merge a response that carries only keywords and site.ext.data", async function () {
+      const global = await mergeResponse({
+        site: {
+          keywords: "section=sport",
+          ext: { data: { site_name: "Example" } },
+          content: { data: [] },
+        },
+      });
+      expect(global).to.eql({
+        site: {
+          keywords: "section=sport",
+          ext: { data: { site_name: "Example" } },
+        },
+      });
+    });
+
+    it("should not add empty keywords or an empty site.ext.data", async function () {
+      const global = await mergeResponse({
+        site: { keywords: " , ", ext: { data: {} }, content: { data: [] } },
+      });
+      expect(global).to.eql({});
+    });
+
+    it("should merge both through a guard that denies user first-party data", async function () {
+      // enrichUfpd / transmitUfpd protect user.* only: site.keywords and
+      // site.ext.data describe the page, not the user.
+      const fragments = { global: {}, bidder: {} };
+      const guard = ortb2FragmentsGuardFactory(
+        ortb2GuardFactory((activity) => !["enrichUfpd", "transmitUfpd"].includes(activity))
+      );
+      await mergeResponse(FPD_RESPONSE, fragments.global, guard(fragments, {}));
+      expect(fragments.global.site.keywords).to.equal(
+        "football,transfers,section=sport,edition=uk"
+      );
+      expect(fragments.global.site.ext.data).to.eql(FPD_RESPONSE.site.ext.data);
+      expect(fragments.global).to.not.have.property("user");
+    });
+
+    it("should not add either field to an auction whose consent does not allow enrichment", async function () {
+      subModuleObj.init(VALID_CONFIG, {});
+      respond200(FPD_RESPONSE);
+      await flushMicrotasks();
+      const req = { ortb2Fragments: { global: {} } };
+      subModuleObj.getBidRequestData(req, sinon.spy(), VALID_CONFIG, {
+        gdpr: { gdprApplies: true, vendorData: { purpose: { consents: { 1: true } } } },
+      });
+      expect(req.ortb2Fragments.global).to.eql({});
     });
   });
 
