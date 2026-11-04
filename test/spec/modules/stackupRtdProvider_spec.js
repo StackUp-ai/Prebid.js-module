@@ -346,7 +346,8 @@ describe("StackUp RTD Provider", function () {
       expect(server.requests.length).to.equal(0);
     });
 
-    it("should fetch when GDPR applies and purposes 1+4 are both consented", function () {
+    it("should not fetch when GDPR applies, even with purposes 1+4 consented", function () {
+      // not on the GVL: the user cannot consent to StackUp as a vendor
       subModuleObj.init(VALID_CONFIG, {
         gdpr: {
           gdprApplies: true,
@@ -358,7 +359,7 @@ describe("StackUp RTD Provider", function () {
           },
         },
       });
-      expect(server.requests.length).to.equal(1);
+      expect(server.requests.length).to.equal(0);
     });
 
     it("should not fetch when GDPR applies and purposes 1+4 are only granted via legitimateInterests", function () {
@@ -2124,9 +2125,19 @@ describe("StackUp RTD Provider", function () {
       expect(req.ortb2Fragments.global).to.eql({});
     });
 
-    it("should merge when the auction's consent grants purposes 1 and 4", function () {
+    it("should not merge when GDPR applies, even with purposes 1 and 4 consented", function () {
       const req = { ortb2Fragments: { global: {} } };
-      subModuleObj.getBidRequestData(req, sinon.spy(), VALID_CONFIG, gdpr({ 1: true, 4: true }));
+      const cb = sinon.spy();
+      subModuleObj.getBidRequestData(req, cb, VALID_CONFIG, gdpr({ 1: true, 4: true }));
+      expect(cb.calledOnce).to.be.true;
+      expect(req.ortb2Fragments.global).to.eql({});
+    });
+
+    it("should merge when the auction's consent says GDPR does not apply", function () {
+      const req = { ortb2Fragments: { global: {} } };
+      subModuleObj.getBidRequestData(req, sinon.spy(), VALID_CONFIG, {
+        gdpr: { gdprApplies: false },
+      });
       expect(req.ortb2Fragments.global.site.content.data).to.have.length(1);
     });
   });

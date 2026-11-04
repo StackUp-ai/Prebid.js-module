@@ -29,10 +29,11 @@ import {
 } from "../libraries/stackupUtils/enrichment.js";
 import type { RTDProviderConfig, RtdProviderSpec } from "./rtdModule/spec.ts";
 
-// TCF purposes required by stackupRtd:
+// TCF purposes declared for the sessionStorage cache in the storage disclosure,
+// as in metadata/modules/stackupRtdProvider.json:
 //   1 = Store and/or access information on a device
-//   4 = Select personalised content
-const REQUIRED_PURPOSES = [1, 4];
+//   4 = Use profiles to select personalised advertising
+const STORAGE_PURPOSES = [1, 4];
 
 const MODULE_NAME = "stackupRtd";
 const MODULE_TYPE = "realTimeData";
@@ -167,7 +168,7 @@ function init(
   discloseStorageUse(MODULE_NAME, {
     type: "web",
     identifier: CACHE_KEY_PREFIX + "*",
-    purposes: REQUIRED_PURPOSES,
+    purposes: STORAGE_PURPOSES,
   });
 
   // Guard against being called with no config (defensive — framework shouldn't do this)
@@ -187,7 +188,7 @@ function init(
     return false;
   }
 
-  // Respect consent — no enrichment if user has not granted relevant purposes
+  // No request when consent already rules enrichment out (GDPR applies, or COPPA)
   if (!hasRequiredConsent(userConsent)) {
     logInfo("[stackupRtd] consent not granted, module inert");
     state.state = "error";
@@ -487,19 +488,13 @@ function hasRequiredConsent(userConsent: AllConsentData): boolean {
   // COPPA: block all processing in child-directed contexts.
   if (userConsent?.coppa === true) return false;
 
-  // GDPR: require per-purpose consent when GDPR applies.
+  // GDPR: StackUp is not on the IAB Global Vendor List, so a user cannot
+  // consent to it as a vendor, whatever purposes they allow. Until it is, no
+  // enrichment where GDPR applies.
   // No USP/CCPA or GPP checks — this module sends only a URL path and domain
   // to the enrichment API; no user identifiers are transmitted or stored,
   // so US sale-of-data opt-outs have no legal basis here.
-  const gdprApplies = deepAccess(userConsent, "gdpr.gdprApplies");
-  if (!gdprApplies) return true;
-
-  // Consent only: TCF 2.2 does not allow legitimate interest as the legal
-  // basis for purpose 1 or purpose 4.
-  const purposeConsents =
-    deepAccess(userConsent, "gdpr.vendorData.purpose.consents") || {};
-
-  return REQUIRED_PURPOSES.every((id) => purposeConsents[id] === true);
+  return !deepAccess(userConsent, "gdpr.gdprApplies");
 }
 
 function resolveArticleId(params: StackupRtdParams): {
