@@ -1,5 +1,5 @@
 import { fetch as prebidFetch } from "../src/ajax.ts";
-import { AllConsentData } from "../src/consentHandler.ts";
+import { AllConsentData, gdprDataHandler } from "../src/consentHandler.ts";
 import { submodule } from "../src/hook.js";
 import { StartAuctionOptions } from "../src/prebid.ts";
 import {
@@ -205,9 +205,13 @@ function init(
     return false;
   }
   // Consent is usually not known yet at init: the sessionStorage cache is only
-  // used here when it already says GDPR doesn't apply. Otherwise the first
-  // auction whose consent says so unlocks it.
-  state.storageAllowed = deepAccess(userConsent, "gdpr.gdprApplies") === false;
+  // used here when it already says GDPR doesn't apply, or when the page has no
+  // GDPR consent module, so no such signal will come. Otherwise the first
+  // auction whose consent says GDPR doesn't apply unlocks it. A consent module
+  // configured only after realTimeData isn't enabled yet here.
+  state.storageAllowed =
+    deepAccess(userConsent, "gdpr.gdprApplies") === false ||
+    !gdprDataHandler.enabled;
 
   let articleId: string | null;
   try {
@@ -686,9 +690,17 @@ function getBidRequestData(
   saveEnrichment();
   if (articleId !== state.articleId) {
     loadEnrichment(articleId, params);
-  } else if (state.state !== "ready" && !state.cacheChecked) {
-    // init could not read the cache: a hit enriches this auction at once
-    useCachedEnrichment(articleId);
+  } else if (
+    state.state !== "ready" &&
+    !state.cacheChecked &&
+    useCachedEnrichment(articleId)
+  ) {
+    // init could not read the cache: the hit enriches this auction at once, and
+    // the fetch init started would only bring the same data again
+    const ctl = state.fetchAbortController;
+    state.fetchAbortController = null; // its result is ignored from now on
+    state.fetchPromise = null;
+    ctl?.abort();
   }
 
   if (state.state === "ready") {

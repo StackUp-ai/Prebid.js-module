@@ -168,6 +168,8 @@ describe("StackUp RTD Provider", function () {
   beforeEach(function () {
     server.reset();
     _resetStateForTesting();
+    // no consent module unless a test enables one
+    gdprDataHandler.reset();
     storageGetStub = sinon
       .stub(storage, "getDataFromSessionStorage")
       .returns(null); // cache miss by default
@@ -177,6 +179,7 @@ describe("StackUp RTD Provider", function () {
   afterEach(function () {
     storageGetStub.restore();
     storageSetStub.restore();
+    gdprDataHandler.reset();
   });
 
   // ── 1. module structure ──────────────────────────────────────────────────
@@ -1472,6 +1475,12 @@ describe("StackUp RTD Provider", function () {
   // ── regressions: running behind rtdModule's guarded ortb2Fragments ───────
 
   describe("session cache and consent", function () {
+    // a consent module is on the page and the CMP has not answered at init;
+    // the outer afterEach turns it off again
+    beforeEach(function () {
+      gdprDataHandler.enable();
+    });
+
     const OUTSIDE_GDPR = { gdpr: { gdprApplies: false } };
     const GDPR = {
       gdpr: { gdprApplies: true, vendorData: { purpose: { consents: { 1: true, 4: true } } } },
@@ -1548,6 +1557,37 @@ describe("StackUp RTD Provider", function () {
       subModuleObj.getBidRequestData(req, cb, VALID_CONFIG, OUTSIDE_GDPR, 0);
       expect(cb.calledOnce).to.be.true;
       expect(storageGetStub.calledOnce).to.be.true;
+      expect(req.ortb2Fragments.global.site.content.title).to.equal("Cached Title");
+    });
+
+    it("should ignore the init fetch once the first auction finds the cache", async function () {
+      storageGetStub.returns(cachedEntry());
+      subModuleObj.init(VALID_CONFIG, {});
+      subModuleObj.getBidRequestData({ ortb2Fragments: { global: {} } }, sinon.spy(), VALID_CONFIG, OUTSIDE_GDPR, 0);
+
+      const late = JSON.parse(JSON.stringify(VALID_API_RESPONSE));
+      late.site.content.title = "Late Title";
+      try {
+        respond200(late);
+      } catch (e) {
+        // the request is aborted
+      }
+      await flushMicrotasks();
+
+      const req = { ortb2Fragments: { global: {} } };
+      subModuleObj.getBidRequestData(req, sinon.spy(), VALID_CONFIG, OUTSIDE_GDPR, 0);
+      expect(req.ortb2Fragments.global.site.content.title).to.equal("Cached Title");
+      expect(storageSetStub.called).to.be.false;
+    });
+
+    it("should read the cache at init on a page without a consent module", function () {
+      gdprDataHandler.reset(); // no consent module: no GDPR signal will come
+      storageGetStub.returns(cachedEntry());
+      subModuleObj.init(VALID_CONFIG, {});
+      expect(server.requests.length).to.equal(0);
+
+      const req = { ortb2Fragments: { global: {} } };
+      subModuleObj.getBidRequestData(req, sinon.spy(), VALID_CONFIG, {}, 0);
       expect(req.ortb2Fragments.global.site.content.title).to.equal("Cached Title");
     });
   });
@@ -2007,6 +2047,7 @@ describe("StackUp RTD Provider", function () {
       const stored = new Map();
       storageSetStub.callsFake((key, value) => stored.set(key, value));
       storageGetStub.callsFake((key) => stored.get(key) ?? null);
+      gdprDataHandler.enable(); // a CMP is on the page; reset by the outer afterEach
 
       subModuleObj.init(PATH_CONFIG, {}); // consent not known yet
       respondTo(server.requests[0], articleResponse("Article A"));
