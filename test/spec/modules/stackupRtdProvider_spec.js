@@ -1352,6 +1352,18 @@ describe("StackUp RTD Provider", function () {
       expect(server.requests.length).to.equal(1);
     });
 
+    it("should fetch instead of throwing on a cached entry that is not valid JSON", function () {
+      storageGetStub.returns("{not json");
+      expect(subModuleObj.init(VALID_CONFIG, {})).to.equal(true);
+      expect(server.requests.length).to.equal(1);
+    });
+
+    it("should fetch instead of throwing when reading session storage throws", function () {
+      storageGetStub.throws(new Error("SecurityError"));
+      expect(subModuleObj.init(VALID_CONFIG, {})).to.equal(true);
+      expect(server.requests.length).to.equal(1);
+    });
+
     it("should key debug-mode entries by the domain it asks the API about", async function () {
       const cachedUnder = async (params) => {
         _resetStateForTesting();
