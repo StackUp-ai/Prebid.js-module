@@ -95,10 +95,14 @@ Without `waitForIt`, the module never holds an auction: it enriches the auction 
 The module checks consent for every auction, and adds no enrichment to an auction whose consent doesn't allow it:
 
 - **COPPA**: if `coppa: true` is set, the module adds no enrichment.
-- **GDPR**: when GDPR applies, the module requires consent for **Purpose 1** (Store/access information on a device) and **Purpose 4** (Use profiles to select personalised advertising); legitimate interest is not accepted for either. If either purpose is missing, or if `vendorData` is absent (e.g. CMP timeout), the module adds no enrichment.
+- **GDPR**: Stack Up is not yet registered on the IAB Global Vendor List, so users can't consent to it as a vendor. Until it is, the module adds no enrichment to any auction where GDPR applies (`gdprApplies: true`), whatever purposes the user has allowed.
 - **USP / CCPA / GPP**: not enforced — the Stack Up API receives only a URL path and domain, no user identifiers, so US sale-of-data frameworks do not apply.
 
-The enrichment request is sent when the module initializes, at `setConfig` time, so that it runs alongside the CMP lookup instead of after it, and the first auction doesn't wait for one and then the other. It is therefore usually sent before the CMP has answered. It carries no user identifiers, only a URL path and domain; consent decides whether the result is added to an auction. The module has no GVL ID, so with Prebid's TCF enforcement (`tcfControl`) and its default vendor checks, GDPR traffic gets only the `site` data: the sessionStorage cache is never used and `user.data` is never added, even with consent. To allow both, add `stackupRtd` to `vendorExceptions` of the `storage` and `personalizedAds` rules. If consent is already denied when the module initializes, no request is sent.
+The enrichment request is sent when the module initializes, at `setConfig` time, so that it runs alongside the CMP lookup instead of after it, and the first auction doesn't wait for one and then the other. It is therefore usually sent before the CMP has answered, including for users GDPR turns out to apply to; for them the result is never added to an auction. It carries no cookies or user identifiers, only a URL path and domain. If GDPR is already known to apply when the module initializes, no request is sent.
+
+The module doesn't read or write `sessionStorage` until consent says GDPR doesn't apply: at initialization when consent is already known by then, otherwise at the first auction whose consent says so. Until then a fetched result is kept in memory only. On pages without a consent management module, the cache is used from initialization. If `consentManagement` is configured after `realTimeData`, the module treats the page as having none at that point. The in-memory cache (`cache.storage: 'memory'`) doesn't touch device storage and is used regardless.
+
+When the CMP doesn't answer in time, Prebid sets `gdprApplies` from `consentManagement.gdpr.defaultGdprScope`, which defaults to `false`, so those users are enriched, as they are bid on. Publishers with EU traffic should set `defaultGdprScope: true`.
 
 ## Article ID Resolution
 
