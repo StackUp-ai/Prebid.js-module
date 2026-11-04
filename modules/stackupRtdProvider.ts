@@ -588,9 +588,10 @@ function getBidRequestData(
     ? Math.max(0, Math.min(ownTimeout, timeout - RELEASE_MARGIN))
     : 0;
 
-  // Core only assigns an auction ID after the RTD providers have run; assign it
-  // now (as priceFloors does) so what we do here can be recorded for analytics
-  // under the ID the auction will carry.
+  // The auction keeps an ID already set on the request, by the publisher or by
+  // priceFloors (its requestBids hook runs before the RTD providers). Without
+  // one, core only generates it once the RTD providers have run: set it now so
+  // what we do here can be recorded for analytics under the auction's ID.
   const auctionId = (reqBidsConfigObj.auctionId =
     reqBidsConfigObj.auctionId || generateUUID());
 
