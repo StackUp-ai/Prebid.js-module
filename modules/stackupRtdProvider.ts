@@ -77,6 +77,13 @@ interface RtdInternalState {
   fetchAbortController: AbortController | null;
   pendingCallbacks: Array<() => void>;
   config: RTDProviderConfig<"stackupRtd">;
+  // Whether consent has said GDPR doesn't apply (at init or at an auction), so
+  // the sessionStorage cache may be used.
+  storageAllowed: boolean;
+  // The enrichment came from the API and is not in the cache yet.
+  unsaved: boolean;
+  // The cache has been looked up for the current article.
+  cacheChecked: boolean;
 }
 
 const state: RtdInternalState = {
@@ -87,6 +94,9 @@ const state: RtdInternalState = {
   fetchAbortController: null,
   pendingCallbacks: [],
   config: null as any,
+  storageAllowed: false,
+  unsaved: false,
+  cacheChecked: false,
 };
 
 export interface StackupRtdParams {
@@ -189,11 +199,15 @@ function init(
   }
 
   // No request when consent already rules enrichment out (GDPR applies, or COPPA)
-  if (!hasRequiredConsent(userConsent)) {
-    logInfo("[stackupRtd] consent not granted, module inert");
+  if (!enrichmentAllowed(userConsent)) {
+    logInfo("[stackupRtd] consent rules out enrichment, module inert");
     state.state = "error";
     return false;
   }
+  // Consent is usually not known yet at init: the sessionStorage cache is only
+  // used here when it already says GDPR doesn't apply. Otherwise the first
+  // auction whose consent says so unlocks it.
+  state.storageAllowed = deepAccess(userConsent, "gdpr.gdprApplies") === false;
 
   let articleId: string | null;
   try {
@@ -226,14 +240,13 @@ function loadEnrichment(articleId: string, params: StackupRtdParams): void {
   state.articleId = articleId;
   state.enrichment = null;
   state.state = "fetching";
+  state.unsaved = false;
+  state.cacheChecked = false;
   drainPendingCallbacks();
 
-  const cached = getCachedEnrichment(articleId);
-  if (cached) {
+  if (cacheUsable() && useCachedEnrichment(articleId)) {
     // Synchronous, so an auction for an article seen earlier is enriched at
     // once, whether or not core waits for us.
-    state.enrichment = { ...cached, source: "cache" };
-    state.state = "ready";
     return;
   }
 
@@ -246,7 +259,9 @@ function loadEnrichment(articleId: string, params: StackupRtdParams): void {
     .then((data) => {
       if (!isCurrent()) return;
       state.enrichment = data;
+      state.unsaved = true;
       state.state = "ready";
+      saveEnrichment();
       drainPendingCallbacks();
     })
     .catch((err) => {
@@ -255,6 +270,30 @@ function loadEnrichment(articleId: string, params: StackupRtdParams): void {
       state.state = "error";
       drainPendingCallbacks();
     });
+}
+
+// sessionStorage is device storage: it is used only once consent says GDPR
+// doesn't apply. The in-memory cache is not, and is always usable.
+function cacheUsable(): boolean {
+  return getCacheConfig().storage === "memory" || state.storageAllowed;
+}
+
+// Looks up the cache for `articleId`; makes it the enrichment on a hit.
+function useCachedEnrichment(articleId: string): boolean {
+  state.cacheChecked = true;
+  const cached = getCachedEnrichment(articleId);
+  if (!cached) return false;
+  state.enrichment = { ...cached, source: "cache" };
+  state.unsaved = false;
+  state.state = "ready";
+  return true;
+}
+
+// Writes an enrichment fetched from the API to the cache, once it may be used.
+function saveEnrichment(): void {
+  if (!state.unsaved || !state.enrichment || !cacheUsable()) return;
+  state.unsaved = false;
+  setCachedEnrichment(state.enrichment.articleId, state.enrichment);
 }
 
 // Builds the enrichment API request URL from the resolved articleId and publisher params.
@@ -322,7 +361,7 @@ function fetchEnrichment(
         },
         user: { data: data.user?.data ?? [] },
       };
-      setCachedEnrichment(articleId, snapshot);
+      // Not cached here: consent may not allow storage yet (see saveEnrichment).
       return snapshot;
     })
     .finally(() => clearTimeout(fetchTimer));
@@ -484,7 +523,7 @@ function setCachedEnrichment(
 // Checked both at init and again for every auction: init runs at setConfig
 // time, and the CMP lookup that consent management starts then is asynchronous,
 // so the consent passed to init is usually still empty.
-function hasRequiredConsent(userConsent: AllConsentData): boolean {
+function enrichmentAllowed(userConsent: AllConsentData): boolean {
   // COPPA: block all processing in child-directed contexts.
   if (userConsent?.coppa === true) return false;
 
@@ -631,8 +670,8 @@ function getBidRequestData(
 
   // This auction's consent is already known: when it rules enrichment out, do
   // not hold the auction for a result that would be discarded.
-  if (!hasRequiredConsent(userConsent)) {
-    logInfo("[stackupRtd] consent not granted, auction proceeds clean");
+  if (!enrichmentAllowed(userConsent)) {
+    logInfo("[stackupRtd] consent rules out enrichment, auction proceeds clean");
     release("noConsent");
     return;
   }
@@ -641,8 +680,15 @@ function getBidRequestData(
     release("unavailable");
     return;
   }
+  // This auction's consent says GDPR doesn't apply: the cache may be used from
+  // now on. Save what was fetched before it could be, then look for this article.
+  state.storageAllowed = true;
+  saveEnrichment();
   if (articleId !== state.articleId) {
     loadEnrichment(articleId, params);
+  } else if (state.state !== "ready" && !state.cacheChecked) {
+    // init could not read the cache: a hit enriches this auction at once
+    useCachedEnrichment(articleId);
   }
 
   if (state.state === "ready") {
@@ -943,4 +989,7 @@ export function _resetStateForTesting(): void {
   resetAuctionEnrichments();
   inMemoryEnrichmentCache.clear();
   state.config = null as any;
+  state.storageAllowed = false;
+  state.unsaved = false;
+  state.cacheChecked = false;
 }

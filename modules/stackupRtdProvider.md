@@ -100,6 +100,10 @@ The module checks consent for every auction, and adds no enrichment to an auctio
 
 The enrichment request is sent when the module initializes, at `setConfig` time, so that it runs alongside the CMP lookup instead of after it, and the first auction doesn't wait for one and then the other. It is therefore usually sent before the CMP has answered, including for users GDPR turns out to apply to; for them the result is never added to an auction. It carries no cookies or user identifiers, only a URL path and domain. If GDPR is already known to apply when the module initializes, no request is sent.
 
+The module doesn't read or write `sessionStorage` until consent says GDPR doesn't apply: at initialization when consent is already known by then, otherwise at the first auction whose consent says so. Until then a fetched result is kept in memory only. The in-memory cache (`cache.storage: 'memory'`) doesn't touch device storage and is used regardless.
+
+When the CMP doesn't answer in time, Prebid sets `gdprApplies` from `consentManagement.gdpr.defaultGdprScope`, which defaults to `false`, so those users are enriched, as they are bid on. Publishers with EU traffic should set `defaultGdprScope: true`.
+
 ## Article ID Resolution
 
 ### `articleIdMode: 'path'` (default)
